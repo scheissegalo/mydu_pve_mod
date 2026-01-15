@@ -44,6 +44,7 @@ public class SectorEncountersController(IServiceProvider provider) : Controller
             new SectorEncounterItem
             {
                 Id = Guid.NewGuid(),
+                Name = request.WreckScript,
                 OnLoadScript = request.WreckScript,
                 OnSectorEnterScript = "expire-sector-default",
                 Active = true
@@ -72,6 +73,7 @@ public class SectorEncountersController(IServiceProvider provider) : Controller
             new SectorEncounterItem
             {
                 Id = Guid.NewGuid(),
+                Name = $"{request.POIScript} / {request.NpcScript}",
                 OnLoadScript = request.POIScript,
                 OnSectorEnterScript = request.NpcScript,
                 Active = true
