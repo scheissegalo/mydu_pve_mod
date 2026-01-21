@@ -52,10 +52,10 @@ public class StarterContentController(IServiceProvider provider) : Controller
             await poiSw.WriteLineAsync(poiContents);
         }
 
-        if (!System.IO.File.Exists(simplePoiDestinationPath))
+        if (!System.IO.File.Exists(basicPirateDestinationPath))
         {
-            await using var basicPirateSw = System.IO.File.CreateText(basicPirateContents);
-            await basicPirateSw.WriteAsync(basicPirateDestinationPath);
+            await using var basicPirateSw = System.IO.File.CreateText(basicPirateDestinationPath);
+            await basicPirateSw.WriteAsync(basicPirateContents);
         }
 
         var prefabItemRepository = provider.GetRequiredService<IPrefabItemRepository>();

@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Mod.DynamicEncounters.Features.Sector.Data;
 using Mod.DynamicEncounters.Features.Sector.Interfaces;
 using NQ;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace Mod.DynamicEncounters.Api.Controllers;
 
@@ -105,6 +106,16 @@ public class SectorInstanceController(IServiceProvider provider) : Controller
         await _repository.ForceExpireAllAsync();
 
         return Ok();
+    }
+    
+    [HttpPost]
+    [Route("load")]
+    [SwaggerOperation("Manually trigger loading of unloaded sectors (runs onLoadScript)")]
+    public async Task<IActionResult> LoadSectors()
+    {
+        var sectorPoolManager = provider.GetRequiredService<ISectorPoolManager>();
+        await sectorPoolManager.LoadUnloadedSectors();
+        return Ok("Sector loading triggered");
     }
     
     public class SectorRequest

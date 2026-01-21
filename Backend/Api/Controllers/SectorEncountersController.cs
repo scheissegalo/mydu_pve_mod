@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Threading.Tasks;
+using Dapper;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Mod.DynamicEncounters.Api.Controllers.Validators;
 using Mod.DynamicEncounters.Common;
+using Mod.DynamicEncounters.Database.Interfaces;
 using Mod.DynamicEncounters.Features.Sector.Data;
 using Mod.DynamicEncounters.Features.Sector.Interfaces;
 using Swashbuckle.AspNetCore.Annotations;
@@ -23,6 +25,45 @@ public class SectorEncountersController(IServiceProvider provider) : Controller
     public async Task<IActionResult> GetAll()
     {
         return Json(await _repository.GetAllAsync());
+    }
+    
+    [SwaggerOperation("Delete a sector encounter by ID")]
+    [HttpDelete]
+    [Route("{id}")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var connectionFactory = provider.GetRequiredService<IPostgresConnectionFactory>();
+        using var db = connectionFactory.Create();
+        db.Open();
+        
+        await db.ExecuteAsync(
+            "DELETE FROM public.mod_sector_encounter WHERE id = @id",
+            new { id }
+        );
+        
+        return Ok();
+    }
+    
+    [SwaggerOperation("Set encounter active status")]
+    [HttpPatch]
+    [Route("{id}/active")]
+    public async Task<IActionResult> SetActive(Guid id, [FromBody] SetActiveRequest request)
+    {
+        var connectionFactory = provider.GetRequiredService<IPostgresConnectionFactory>();
+        using var db = connectionFactory.Create();
+        db.Open();
+        
+        await db.ExecuteAsync(
+            "UPDATE public.mod_sector_encounter SET active = @active WHERE id = @id",
+            new { id, active = request.Active }
+        );
+        
+        return Ok();
+    }
+    
+    public class SetActiveRequest
+    {
+        public bool Active { get; set; }
     }
 
     [SwaggerOperation("Add a new wreck sector encounter to the system")]

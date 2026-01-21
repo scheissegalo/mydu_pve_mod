@@ -29,3 +29,4 @@ SELECT * FROM mod_faction_territory
 WHERE faction_id = 1 
   AND territory_id = 'b3f964e2-fe1a-4cda-8ff5-dce74a7988bd';
 
+
