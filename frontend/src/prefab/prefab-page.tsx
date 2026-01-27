@@ -15,10 +15,17 @@ const PrefabPage: React.FC<PrefabPageProps> = () => {
     const [error, setError] = useState(null);
 
     const fetchData = async () => {
-        setLoading(true);
-        const response = await getAll();
-        setLoading(false);
-        setData(response);
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await getAll();
+            setData(response);
+        } catch (err: any) {
+            setError(err.message || 'Failed to fetch data');
+            console.error('Error fetching prefabs:', err);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const columns: GridColDef[] = [
@@ -38,7 +45,7 @@ const PrefabPage: React.FC<PrefabPageProps> = () => {
     }, []);
 
     return (
-        <DashboardContainer title="Prefabs">
+        <DashboardContainer title="Prefabs" error={error}>
             <p>Blueprint and construct information to be used by scripts to spawn</p>
             <Stack spacing={2} direction="row">
                 <Button variant="contained">Add</Button>
@@ -48,6 +55,7 @@ const PrefabPage: React.FC<PrefabPageProps> = () => {
                 <DataGrid
                     rows={data}
                     columns={columns}
+                    getRowId={x => x.name}
                     initialState={{pagination: {paginationModel}}}
                     pageSizeOptions={[10, 20, 30, 40, 50, 100]}
                     checkboxSelection

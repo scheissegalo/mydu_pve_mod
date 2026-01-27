@@ -1,0 +1,1 @@
+psql postgresql://dual:dual@localhost:5442/dual

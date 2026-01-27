@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Mod.DynamicEncounters.Common.Data;
 using Mod.DynamicEncounters.Database.Interfaces;
 using Mod.DynamicEncounters.Features.Sector.Data;
@@ -213,35 +214,95 @@ public class SectorInstanceRepository(IServiceProvider provider) : ISectorInstan
         using var db = _connectionFactory.Create();
         db.Open();
 
-        var queryResult = await db.QueryAsync<DbRow>(
-            """
-            SELECT * FROM (
-            	SELECT 
-            		SI.*,
-            		(
-            			SELECT C.id FROM construct C
-            			LEFT JOIN mod_npc_construct_handle CH ON (CH.construct_id = C.id)
-            			WHERE CH.id IS NULL AND
-            				C.deleted_at IS NULL AND
-            				(C.json_properties->>'isUntargetable' = 'false' OR C.json_properties->>'isUntargetable' IS NULL) AND
-            				(C.json_properties->>'kind' IN ('4', '5')) AND
-            				(C.owner_entity_id IS NOT NULL) AND
-            				ST_DWithin(
-            					ST_MakePoint(SI.sector_x, SI.sector_y, SI.sector_z),
-            					C.position,
-            					@distance
-            				) AND
-            				ST_3DDistance(C.position, ST_MakePoint(SI.sector_x, SI.sector_y, SI.sector_z)) <= @distance
-            			LIMIT 1
-            		) IS NOT NULL should_activate
-            	FROM mod_sector_instance SI
-            	WHERE SI.started_at IS NULL
-            ) AS Q WHERE should_activate IS TRUE
-            """,
-            new { distance }
-        );
-        
-        return queryResult.Select(MapToModel);
+        try
+        {
+            // First, get all inactive sectors for logging
+            var inactiveSectors = await db.QueryAsync<DbRow>(
+                """
+                SELECT * FROM mod_sector_instance 
+                WHERE started_at IS NULL
+                """,
+                new { }
+            );
+            
+            var logger = provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SectorInstanceRepository>>();
+            logger.LogDebug("Scanning {Count} inactive sectors for player entry (distance: {Distance}m)", 
+                inactiveSectors.Count(), distance);
+            
+            // Log sector positions for debugging
+            foreach (var sector in inactiveSectors.Take(5))
+            {
+                logger.LogDebug("Inactive sector {Id} at position ({X}, {Y}, {Z})", 
+                    sector.id, sector.sector_x, sector.sector_y, sector.sector_z);
+            }
+            
+            // Check if there are any player constructs at all
+            var playerConstructCount = await db.ExecuteScalarAsync<long>(
+                """
+                SELECT COUNT(*) FROM construct C
+                LEFT JOIN ownership O ON (C.owner_entity_id = O.id)
+                WHERE C.deleted_at IS NULL AND
+                      (C.json_properties->>'isUntargetable' = 'false' OR C.json_properties->>'isUntargetable' IS NULL) AND
+                      (C.json_properties->>'kind' IN ('4', '5')) AND
+                      C.owner_entity_id IS NOT NULL AND 
+                      (O.player_id NOT IN(1, 0) OR (O.player_id IS NULL AND O.organization_id IS NOT NULL))
+                """
+            );
+            logger.LogDebug("Found {Count} total player constructs in database", playerConstructCount);
+            
+            var queryResult = await db.QueryAsync<DbRow>(
+                """
+                SELECT * FROM (
+                	SELECT 
+                		SI.*,
+                		(
+                			SELECT C.id FROM construct C
+                			LEFT JOIN mod_npc_construct_handle CH ON (CH.construct_id = C.id)
+                			WHERE CH.id IS NULL AND
+                				C.deleted_at IS NULL AND
+                				(C.json_properties->>'isUntargetable' = 'false' OR C.json_properties->>'isUntargetable' IS NULL) AND
+                				(C.json_properties->>'kind' IN ('4', '5')) AND
+                				(C.owner_entity_id IS NOT NULL) AND
+                				ST_DWithin(
+                					ST_MakePoint(SI.sector_x, SI.sector_y, SI.sector_z),
+                					C.position,
+                					@distance
+                				) AND
+                				ST_3DDistance(C.position, ST_MakePoint(SI.sector_x, SI.sector_y, SI.sector_z)) <= @distance
+                			LIMIT 1
+                		) IS NOT NULL should_activate
+                	FROM mod_sector_instance SI
+                	WHERE SI.started_at IS NULL
+                ) AS Q WHERE should_activate IS TRUE
+                """,
+                new { distance }
+            );
+            
+            var results = queryResult.Select(MapToModel).ToList();
+            logger.LogInformation("Spatial query found {Count} sectors with players nearby", results.Count);
+            
+            return results;
+        }
+        catch (Exception ex)
+        {
+            // Log PostGIS-related errors clearly
+            var errorMessage = ex.Message;
+            var logger = provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SectorInstanceRepository>>();
+            
+            if (errorMessage.Contains("ST_DWithin") || errorMessage.Contains("ST_3DDistance") || errorMessage.Contains("ST_MakePoint") || errorMessage.Contains("postgis"))
+            {
+                logger.LogError(ex, "PostGIS extension is required for sector entry detection. " +
+                    "Please install PostGIS: CREATE EXTENSION IF NOT EXISTS postgis;");
+                throw new InvalidOperationException(
+                    "PostGIS extension is required for sector entry detection. " +
+                    "Please install PostGIS in your PostgreSQL database: " +
+                    "CREATE EXTENSION IF NOT EXISTS postgis; " +
+                    "Original error: " + errorMessage, ex);
+            }
+            
+            logger.LogError(ex, "Error in ScanForInactiveSectorsVisitedByPlayersV2: {Error}", errorMessage);
+            throw;
+        }
     }
 
     public async Task ExpireAllAsync()

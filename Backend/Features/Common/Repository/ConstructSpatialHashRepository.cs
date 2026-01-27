@@ -72,6 +72,42 @@ public class ConstructSpatialHashRepository(IServiceProvider serviceProvider) : 
         return result;
     }
 
+    public async Task<IEnumerable<ulong>> FindPlayerLiveConstructsNearPosition(Vec3 position, double distance)
+    {
+        using var db = _factory.Create();
+        db.Open();
+
+        var result = (await db.QueryAsync<ulong>(
+            """
+            SELECT C.id FROM public.construct C
+            LEFT JOIN public.ownership O ON (C.owner_entity_id = O.id)
+            LEFT JOIN mod_npc_construct_handle CH ON (CH.construct_id = C.id)
+            WHERE CH.id IS NULL AND
+                  C.deleted_at IS NULL AND
+                  (C.json_properties->>'isUntargetable' = 'false' OR C.json_properties->>'isUntargetable' IS NULL) AND
+                  (C.json_properties->>'kind' IN ('4', '5')) AND
+                  C.owner_entity_id IS NOT NULL AND
+                  (O.player_id NOT IN(1, 0) OR (O.player_id IS NULL AND O.organization_id IS NOT NULL)) AND
+                  ST_DWithin(
+                      ST_MakePoint(@x, @y, @z),
+                      C.position,
+                      @distance
+                  ) AND
+                  ST_3DDistance(C.position, ST_MakePoint(@x, @y, @z)) <= @distance
+            LIMIT 10
+            """,
+            new
+            {
+                x = position.x,
+                y = position.y,
+                z = position.z,
+                distance
+            }
+        )).ToList();
+
+        return result;
+    }
+
     public async Task<IEnumerable<ConstructSectorRow>> FindPlayerLiveConstructsOnSectorInstances(IEnumerable<Vec3> excludeSectorList)
     {
         using var db = _factory.Create();

@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Mod.DynamicEncounters.Overrides.ApiClient.Data;
 using Mod.DynamicEncounters.Overrides.ApiClient.Interfaces;
 using Newtonsoft.Json;
@@ -15,10 +16,14 @@ namespace Mod.DynamicEncounters.Overrides.ApiClient.Services;
 public class PveModPartyApiClient(IServiceProvider provider) : IPveModPartyApiClient
 {
     private readonly IHttpClientFactory _httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
+    private readonly ILogger<PveModPartyApiClient> _logger = provider.GetRequiredService<ILoggerFactory>().CreateLogger<PveModPartyApiClient>();
 
     public async Task<IEnumerable<PlayerPartyItem>> GetPartyByPlayerId(ulong playerId, CancellationToken cancellationToken)
     {
-        var url = Path.Combine(PveModBaseUrl.GetBaseUrl(), "party", $"{playerId}");
+        var baseUrl = PveModBaseUrl.GetBaseUrl().TrimEnd('/');
+        var url = $"{baseUrl}/party/{playerId}";
+        
+        _logger.LogInformation("PveModPartyApiClient: Calling GET {Url}", url);
         
         using var client = _httpClientFactory.CreateClient();
 
@@ -26,6 +31,8 @@ public class PveModPartyApiClient(IServiceProvider provider) : IPveModPartyApiCl
             url,
             cancellationToken
         );
+        
+        _logger.LogInformation("PveModPartyApiClient: Response status {StatusCode}", responseMessage.StatusCode);
 
         var jsonString = await responseMessage.Content.ReadAsStringAsync(cancellationToken);
 
@@ -126,7 +133,9 @@ public class PveModPartyApiClient(IServiceProvider provider) : IPveModPartyApiCl
 
     private async Task<BasicOutcome> PostAsync(string path, object body, CancellationToken cancellationToken)
     {
-        var url = Path.Combine(PveModBaseUrl.GetBaseUrl(), path);
+        var baseUrl = PveModBaseUrl.GetBaseUrl().TrimEnd('/');
+        var cleanPath = path.TrimStart('/');
+        var url = $"{baseUrl}/{cleanPath}";
         
         using var client = _httpClientFactory.CreateClient();
 

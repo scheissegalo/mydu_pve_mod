@@ -28,14 +28,21 @@ public class ShootWeaponAction(IServiceProvider provider) : IModActionHandler
 
     public async Task HandleAction(ulong playerId, ModAction action)
     {
+        _logger.LogWarning("ShootWeaponAction: HandleAction called for construct {ConstructId}", action.constructId);
         var shotData = JsonConvert.DeserializeObject<ShootWeaponData>(action.payload);
         var weapon = shotData.Weapon;
+        
+        _logger.LogWarning("ShootWeaponAction: Weapon item: {WeaponItem}, Target: {TargetConstructId}", 
+            weapon.weaponItem, shotData.TargetConstructId);
 
         var weaponDef = _bank.GetDefinition(weapon.weaponItem);
         if (weaponDef?.BaseObject is not WeaponUnit weaponUnit)
         {
+            _logger.LogError("ShootWeaponAction: Weapon definition not found or not a WeaponUnit for {WeaponItem}", weapon.weaponItem);
             return;
         }
+        
+        _logger.LogWarning("ShootWeaponAction: Weapon unit found: {WeaponUnitType}", weaponUnit.GetType().Name);
 
         var impactWorldPos = await _sceneGraph.ResolveWorldLocation(
             new RelativeLocation
@@ -45,11 +52,19 @@ public class ShootWeaponAction(IServiceProvider provider) : IModActionHandler
             });
         var originWorldPos = await _sceneGraph.GetConstructCenterWorldPosition(shotData.ShooterConstructId);
 
-        if (impactWorldPos.position.Dist(originWorldPos) > weapon.baseOptimalDistance + weapon.falloffDistance * 5)
+        var distance = impactWorldPos.position.Dist(originWorldPos);
+        var maxRange = weapon.baseOptimalDistance + weapon.falloffDistance * 5;
+        _logger.LogWarning("ShootWeaponAction: Distance check - distance: {Distance}m, max range: {MaxRange}m", 
+            distance, maxRange);
+        
+        if (distance > maxRange)
         {
-            // TODO Far miss
+            _logger.LogWarning("ShootWeaponAction: Target too far - distance {Distance}m > max range {MaxRange}m (Far miss)", 
+                distance, maxRange);
             return;
         }
+        
+        _logger.LogWarning("ShootWeaponAction: Distance check passed, proceeding with shot", distance, maxRange);
 
         ShotOutcome shotOutcome;
         if (weaponUnit is StasisWeaponUnit)
@@ -76,11 +91,11 @@ public class ShootWeaponAction(IServiceProvider provider) : IModActionHandler
 
         if (!shotOutcome.Success)
         {
-            _logger.LogError("Failed to preform Shoot Weapon: {Message}", shotOutcome.Message);
+            _logger.LogError("ShootWeaponAction: Failed to perform Shoot Weapon: {Message}", shotOutcome.Message);
         }
         else
         {
-            _logger.LogInformation("Shot Operation Success. Hit: {Hit}", shotOutcome.Hit);
+            _logger.LogWarning("ShootWeaponAction: Shot Operation Success. Hit: {Hit}", shotOutcome.Hit);
         }
     }
 
@@ -171,6 +186,8 @@ public class ShootWeaponAction(IServiceProvider provider) : IModActionHandler
             @params.ShootWeaponData.CrossSection
         );
         
+        _logger.LogWarning("ShootWeaponAction: Calculated hit ratio: {HitRatio}", hitRatio);
+        
         var hitPositionWorld = await _sceneGraph.ResolveWorldLocation(new RelativeLocation
         {
             constructId = targetConstructId,
@@ -178,6 +195,8 @@ public class ShootWeaponAction(IServiceProvider provider) : IModActionHandler
         });
 
         var num = _random.NextDouble();
+        _logger.LogWarning("ShootWeaponAction: Random roll: {Roll}, Hit ratio: {HitRatio}, IsHit: {IsHit}", 
+            num, hitRatio, num <= hitRatio);
 
         var isHit = num <= hitRatio;
 
@@ -188,6 +207,9 @@ public class ShootWeaponAction(IServiceProvider provider) : IModActionHandler
 
         if (isHit)
         {
+            _logger.LogWarning("ShootWeaponAction: HIT! Applying damage - weapon damage: {Damage}, ammo: {Ammo}", 
+                weapon.damage, weapon.ammoItem);
+            
             var targetConstructFightGrain = _orleans.GetConstructFightGrain(targetConstructId);
             var targetConstructDamageGrain = _orleans.GetConstructDamageElementsGrain(targetConstructId);
 
@@ -198,6 +220,9 @@ public class ShootWeaponAction(IServiceProvider provider) : IModActionHandler
                 originPlayerId = @params.ShootWeaponData.ShooterPlayerId,
                 originConstructId = shooterConstructId
             });
+            
+            _logger.LogWarning("ShootWeaponAction: ConstructTakeHit result - shield absorbed: {ShieldAbsorbed}, core stress damage: {CoreDamage}, core destroyed: {CoreDestroyed}", 
+                hit.effect == ShieldHitEffect.ShieldAbsorbedHit, hit.coreUnitStressDamage, hit.coreUnitStressDestroyed);
 
             result.coreUnitStressDamage = hit.coreUnitStressDamage;
 
@@ -337,6 +362,8 @@ public class ShootWeaponAction(IServiceProvider provider) : IModActionHandler
             );
         }
 
+        _logger.LogWarning("ShootWeaponAction: MISS! Random roll {Roll} > hit ratio {HitRatio}", num, hitRatio);
+        
         var targetConstructInfoGrain = _orleans.GetConstructInfoGrain(targetConstructId);
         var targetInfo = await targetConstructInfoGrain.Get();
 

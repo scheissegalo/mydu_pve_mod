@@ -13,10 +13,17 @@ const EventHandlerPage: React.FC<PrefabPageProps> = () => {
     const [error, setError] = useState<any>(null);
 
     const fetchData = async () => {
-        setLoading(true);
-        const response = await getAll();
-        setLoading(false);
-        setData(response);
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await getAll();
+            setData(response);
+        } catch (err: any) {
+            setError(err.message || 'Failed to fetch data');
+            console.error('Error fetching event handlers:', err);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const columns: GridColDef[] = [
@@ -28,7 +35,7 @@ const EventHandlerPage: React.FC<PrefabPageProps> = () => {
     const paginationModel = { page: 0, pageSize: 10 };
 
     useEffect(() => {
-        fetchData().catch(reason => setError('Failed to fetch data'));
+        fetchData();
     }, []);
 
     return (

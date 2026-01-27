@@ -26,69 +26,83 @@ public class FetchPartyDataAction(IServiceProvider provider) : IModActionHandler
 
     public async Task HandleAction(ulong playerId, ModAction action)
     {
-        var injection = ModServiceProvider.Get<IMyDuInjectionService>();
-
-        var sw = new Stopwatch();
-        sw.Start();
-
-        var list = (await _partyApiClient.GetPartyByPlayerId(playerId, CancellationToken.None)).ToList();
-
-        var leader = list.FirstOrDefault(x => x.IsLeader);
-
-        if (leader == null)
+        try
         {
-            _logger.LogInformation("Party Data: {Json}", JsonConvert.SerializeObject(new PartyData()));
-            await injection.UploadJson(playerId, "player-party", new PartyData());
-            return;
-        }
+            _logger.LogInformation("FetchPartyDataAction: Starting for player {PlayerId}", playerId);
+            var injection = ModServiceProvider.Get<IMyDuInjectionService>();
 
-        var pendingInvite = list.Where(x => x.IsPendingAcceptInvite).ToList();
-        var pendingRequest = list.Where(x => x.IsPendingAcceptRequest).ToList();
-        var members = list
-            .Where(x => !x.IsPendingAcceptRequest && !x.IsPendingAcceptInvite && !x.IsLeader);
+            var sw = new Stopwatch();
+            sw.Start();
 
-        var pendingList = pendingInvite.Select(x => x.PlayerId).ToList();
-        pendingList.AddRange(pendingRequest.Select(x => x.PlayerId).ToList());
-        var pendingSet = pendingList.ToHashSet();
+            _logger.LogInformation("FetchPartyDataAction: Calling API to get party data");
+            var list = (await _partyApiClient.GetPartyByPlayerId(playerId, CancellationToken.None)).ToList();
+            _logger.LogInformation("FetchPartyDataAction: Received {Count} party items", list.Count);
 
-        var pendingInviteList = pendingInvite.Select(x => MapToModelPending(x, playerId));
-        var pendingRequestList = pendingRequest.Select(x => MapToModelPending(x, playerId));
-        
-        if (pendingSet.Contains(playerId))
-        {
-            var pendingPartyData = new PartyData
+            var leader = list.FirstOrDefault(x => x.IsLeader);
+
+            if (leader == null)
+            {
+                _logger.LogInformation("Party Data: {Json}", JsonConvert.SerializeObject(new PartyData()));
+                await injection.UploadJson(playerId, "player-party", new PartyData());
+                return;
+            }
+
+            var pendingInvite = list.Where(x => x.IsPendingAcceptInvite).ToList();
+            var pendingRequest = list.Where(x => x.IsPendingAcceptRequest).ToList();
+            var members = list
+                .Where(x => !x.IsPendingAcceptRequest && !x.IsPendingAcceptInvite && !x.IsLeader);
+
+            var pendingList = pendingInvite.Select(x => x.PlayerId).ToList();
+            pendingList.AddRange(pendingRequest.Select(x => x.PlayerId).ToList());
+            var pendingSet = pendingList.ToHashSet();
+
+            var pendingInviteList = pendingInvite.Select(x => MapToModelPending(x, playerId));
+            var pendingRequestList = pendingRequest.Select(x => MapToModelPending(x, playerId));
+            
+            if (pendingSet.Contains(playerId))
+            {
+                var pendingPartyData = new PartyData
+                {
+                    GroupId = list.First().GroupId,
+                    PlayerIsLeader = false,
+                    PlayerIsPending = true,
+                    Leader = MapToModelRestricted(leader, playerId),
+                    Members = [],
+                    PendingAccept = pendingRequestList.Where(x => x.PlayerId == playerId),
+                    Invited = pendingInviteList.Where(x => x.PlayerId == playerId)
+                };
+                
+                await injection.UploadJson(playerId, "player-party", pendingPartyData);
+                _logger.LogInformation("Party Data: {Json}", JsonConvert.SerializeObject(pendingPartyData));
+                return;
+            }
+
+            var membersMappedTask = await Task.WhenAll(members.Select(x => MapToModelMember(x, playerId)));
+
+            var partyData = new PartyData
             {
                 GroupId = list.First().GroupId,
-                PlayerIsLeader = false,
-                PlayerIsPending = true,
-                Leader = MapToModelRestricted(leader, playerId),
-                Members = [],
-                PendingAccept = pendingRequestList.Where(x => x.PlayerId == playerId),
-                Invited = pendingInviteList.Where(x => x.PlayerId == playerId)
+                PlayerIsLeader = playerId == leader.PlayerId,
+                PlayerIsPending = pendingSet.Contains(playerId),
+                Leader = await MapToModelMember(leader, playerId),
+                Invited = pendingInviteList,
+                PendingAccept = pendingRequestList,
+                Members = membersMappedTask
             };
-            
-            await injection.UploadJson(playerId, "player-party", pendingPartyData);
-            _logger.LogInformation("Party Data: {Json}", JsonConvert.SerializeObject(pendingPartyData));
-            return;
+
+            _logger.LogInformation("Party Data: {Json}", JsonConvert.SerializeObject(partyData));
+            // _logger.LogInformation("FetchPartyDataAction Took: {Time}ms", sw.ElapsedMilliseconds);
+
+            _logger.LogInformation("FetchPartyDataAction: Uploading JSON to player");
+            await injection.UploadJson(playerId, "player-party", partyData);
+            _logger.LogInformation("FetchPartyDataAction: Completed successfully");
         }
-
-        var membersMappedTask = await Task.WhenAll(members.Select(x => MapToModelMember(x, playerId)));
-
-        var partyData = new PartyData
+        catch (Exception ex)
         {
-            GroupId = list.First().GroupId,
-            PlayerIsLeader = playerId == leader.PlayerId,
-            PlayerIsPending = pendingSet.Contains(playerId),
-            Leader = await MapToModelMember(leader, playerId),
-            Invited = pendingInviteList,
-            PendingAccept = pendingRequestList,
-            Members = membersMappedTask
-        };
-
-        _logger.LogInformation("Party Data: {Json}", JsonConvert.SerializeObject(partyData));
-        // _logger.LogInformation("FetchPartyDataAction Took: {Time}ms", sw.ElapsedMilliseconds);
-
-        await injection.UploadJson(playerId, "player-party", partyData);
+            _logger.LogError(ex, "FetchPartyDataAction: Failed for player {PlayerId} - {ExceptionType}: {Message}", 
+                playerId, ex.GetType().Name, ex.Message);
+            throw;
+        }
     }
     
     private PartyData.PartyMemberEntry MapToModelRestricted(PlayerPartyItem item, ulong selfPlayerId)

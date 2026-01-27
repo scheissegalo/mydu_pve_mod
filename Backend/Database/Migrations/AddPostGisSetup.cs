@@ -10,6 +10,11 @@ public class AddPostGisSetup : Migration
 
     public override void Up()
     {
+        // Create PostGIS extension
+        // Note: If this fails with "could not open extension control file", you need to ensure
+        // PostGIS is properly installed in your PostgreSQL container. With postgis/postgis image,
+        // the extension should be available, but you may need to create it manually first:
+        // psql -U dual -d dual -h localhost -p 5442 -c "CREATE EXTENSION IF NOT EXISTS postgis;"
         Execute.Sql("CREATE EXTENSION IF NOT EXISTS postgis;");
 
         Execute.Sql(

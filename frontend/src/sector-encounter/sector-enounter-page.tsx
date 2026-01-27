@@ -16,10 +16,17 @@ const SectorEncounterPage: React.FC<PrefabPageProps> = () => {
     const [error, setError] = useState(null);
 
     const fetchData = async () => {
-        setLoading(true);
-        const response = await getAll();
-        setLoading(false);
-        setData(response);
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await getAll();
+            setData(response);
+        } catch (err: any) {
+            setError(err.message || 'Failed to fetch data');
+            console.error('Error fetching sector encounters:', err);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const columns: GridColDef[] = [
@@ -45,7 +52,7 @@ const SectorEncounterPage: React.FC<PrefabPageProps> = () => {
     }, []);
 
     return (
-        <DashboardContainer title="Sector Definitions">
+        <DashboardContainer title="Sector Definitions" error={error}>
             <p>Every time the mod needs to generate a new sector it will pick one of these active items at random and generate a sector instance</p>
             <Stack spacing={2} direction="row">
                 <Button variant="contained" color="primary">Add</Button>

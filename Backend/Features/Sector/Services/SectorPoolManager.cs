@@ -88,9 +88,21 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
                 random.NextDouble()
             );
 
+            // Calculate adaptive grid snap based on encounter radius
+            // For small-radius encounters, use smaller grid snap to allow closer spawning
+            // Minimum grid snap is 0.1 SU (20km), maximum is the standard 20 SU
+            // Grid snap should be at most 10% of MaxRadius to ensure spawns stay within radius
+            var adaptiveGridSnap = Math.Min(
+                SectorGridSnap,
+                Math.Max(
+                    encounter.Properties.MaxRadius / 10.0,
+                    DistanceHelpers.OneSuInMeters * 0.1 // Minimum 0.1 SU = 20km
+                )
+            );
+
             var position = random.RandomDirectionVec3() * radius;
             position += encounter.Properties.CenterPosition;
-            position = position.GridSnap(SectorGridSnap);
+            position = position.GridSnap(adaptiveGridSnap);
 
             var instance = new SectorInstance
             {
@@ -158,6 +170,9 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
         {
             try
             {
+                _logger.LogDebug("Loading sector {Id} at {Sector} with script {Script}", 
+                    sector.Id, sector.Sector, sector.OnLoadScript);
+                
                 await scriptService.ExecuteScriptAsync(
                     sector.OnLoadScript,
                     new ScriptContext(
@@ -173,11 +188,13 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
                     }
                 ).OnError(exception =>
                 {
-                    _logger.LogError(exception, "Failed to Execute On Load Script (Aggregate). {Script}", sector.OnLoadScript);
+                    _logger.LogError(exception, "Failed to Execute On Load Script (Aggregate). Sector: {SectorId}, Script: {Script}", 
+                        sector.Id, sector.OnLoadScript);
 
                     foreach (var e in exception.InnerExceptions)
                     {
-                        _logger.LogError(e, "Failed to Execute On Load Script");
+                        _logger.LogError(e, "Failed to Execute On Load Script. Sector: {SectorId}, Script: {Script}", 
+                            sector.Id, sector.OnLoadScript);
                     }
                 });
 
@@ -191,7 +208,8 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
             {
                 // On Failure... expire the sector quicker.
                 // Maybe the server is under load
-                _logger.LogError(e, "Failed to Load Sector {Id}({Sector})", sector.Id, sector.Sector);
+                _logger.LogError(e, "Failed to Load Sector {Id}({Sector}) with script {Script}. Error: {Error}", 
+                    sector.Id, sector.Sector, sector.OnLoadScript, e.Message);
                 await _sectorInstanceRepository.SetLoadedAsync(sector.Id, true);
                 await _sectorInstanceRepository.SetExpirationFromNowAsync(sector.Id, TimeSpan.FromMinutes(10));
             }
@@ -298,24 +316,41 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
         var sw = new Stopwatch();
         sw.Start();
         
-        var sectorsToActivate = (await _sectorInstanceRepository
-                .ScanForInactiveSectorsVisitedByPlayersV2(DistanceHelpers.OneSuInMeters * 10))
-            .DistinctBy(x => x.Sector)
-            .ToList();
-        
-        sw.Stop();
-        
-        StatsRecorder.Record("InactiveSectorTrigger", sw.ElapsedMilliseconds);
-
-        if (sectorsToActivate.Count == 0)
+        try
         {
-            _logger.LogDebug("No sectors need startup");
-            return;
+            _logger.LogDebug("Scanning for inactive sectors visited by players (distance: {Distance}m)", 
+                DistanceHelpers.OneSuInMeters * 10);
+            
+            var sectorsToActivate = (await _sectorInstanceRepository
+                    .ScanForInactiveSectorsVisitedByPlayersV2(DistanceHelpers.OneSuInMeters * 10))
+                .DistinctBy(x => x.Sector)
+                .ToList();
+            
+            sw.Stop();
+            
+            StatsRecorder.Record("InactiveSectorTrigger", sw.ElapsedMilliseconds);
+
+            if (sectorsToActivate.Count == 0)
+            {
+                _logger.LogDebug("No sectors need startup (scanned in {Time}ms)", sw.ElapsedMilliseconds);
+                return;
+            }
+
+            _logger.LogInformation("Found {Count} sectors to activate (scanned in {Time}ms)", 
+                sectorsToActivate.Count, sw.ElapsedMilliseconds);
+
+            foreach (var sectorInstance in sectorsToActivate)
+            {
+                _logger.LogInformation("Activating sector {Id} at {Sector} with script {Script}", 
+                    sectorInstance.Id, sectorInstance.Sector, sectorInstance.OnSectorEnterScript);
+                await ActivateSector(sectorInstance);
+            }
         }
-
-        foreach (var sectorInstance in sectorsToActivate)
+        catch (Exception ex)
         {
-            await ActivateSector(sectorInstance);
+            _logger.LogError(ex, "Failed to activate entered sectors. This may be due to missing PostGIS extension. " +
+                                 "Please ensure PostGIS is installed: CREATE EXTENSION IF NOT EXISTS postgis;");
+            throw;
         }
     }
 
@@ -323,11 +358,24 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
     {
         var spatialHashRepository = serviceProvider.GetRequiredService<IConstructSpatialHashRepository>();
 
-        var constructs = (await spatialHashRepository.FindPlayerLiveConstructsOnSector(sectorInstance.Sector))
-            .ToList();
+        _logger.LogDebug("ActivateSector: Looking for player constructs near sector position ({X}, {Y}, {Z})", 
+            sectorInstance.Sector.x, sectorInstance.Sector.y, sectorInstance.Sector.z);
+
+        // Use spatial query instead of grid-snap lookup to handle adaptive grid snap
+        // The spatial query found the sector, so use the same approach to find constructs
+        var searchDistance = DistanceHelpers.OneSuInMeters * 10; // Same distance as detection
+        var constructs = (await spatialHashRepository.FindPlayerLiveConstructsNearPosition(
+            sectorInstance.Sector, 
+            searchDistance
+        )).ToList();
+
+        _logger.LogDebug("ActivateSector: Found {Count} player constructs near sector position ({X}, {Y}, {Z}) using spatial query", 
+            constructs.Count, sectorInstance.Sector.x, sectorInstance.Sector.y, sectorInstance.Sector.z);
 
         if (constructs.Count == 0)
         {
+            _logger.LogWarning("ActivateSector: No player constructs found near sector position ({X}, {Y}, {Z}) using spatial query", 
+                sectorInstance.Sector.x, sectorInstance.Sector.y, sectorInstance.Sector.z);
             return SectorActivationOutcome.Failed("No Player Constructs");
         }
 

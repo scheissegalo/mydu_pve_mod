@@ -8,6 +8,7 @@ using Mod.DynamicEncounters.Database.Interfaces;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Data;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Interfaces;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Mod.DynamicEncounters.Features.Scripts.Actions.Repository;
 
@@ -139,11 +140,93 @@ public class ScriptActionItemDatabaseRepository(IServiceProvider provider) : ISc
 
     private ScriptActionItem MapToModel(DbRow row)
     {
-        var model = JsonConvert.DeserializeObject<ScriptActionItem>(row.content);
-        model.Id = row.id;
-        
-        return model;
+        try
+        {
+            // Parse JSON and fix Properties arrays before deserialization
+            var json = JObject.Parse(row.content);
+            FixPropertiesInJsonRecursively(json);
+            
+            var jsonString = json.ToString();
+            var model = JsonConvert.DeserializeObject<ScriptActionItem>(jsonString);
+            if (model == null)
+            {
+                throw new InvalidOperationException($"Failed to deserialize script {row.name}");
+            }
+            
+            model.Id = row.id;
+            
+            // Ensure Properties is initialized (handle null case)
+            if (model.Properties == null)
+            {
+                model.Properties = new Dictionary<string, object>();
+            }
+            
+            // Recursively ensure nested Actions have Properties initialized
+            FixPropertiesRecursively(model);
+            
+            return model;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to deserialize script {row.name}: {ex.Message}", ex);
+        }
     }
+
+    private void FixPropertiesInJsonRecursively(JToken token)
+    {
+        if (token == null) return;
+        
+        if (token is JObject obj)
+        {
+            // Fix Properties if it's an array
+            if (obj["Properties"] != null && obj["Properties"].Type == JTokenType.Array)
+            {
+                obj["Properties"] = new JObject();
+            }
+            
+            // Recursively fix nested Actions
+            if (obj["Actions"] != null && obj["Actions"].Type == JTokenType.Array)
+            {
+                foreach (var action in obj["Actions"])
+                {
+                    FixPropertiesInJsonRecursively(action);
+                }
+            }
+            
+            // Recursively fix all other object/array properties
+            foreach (var property in obj.Properties())
+            {
+                if (property.Value != null && (property.Value.Type == JTokenType.Object || property.Value.Type == JTokenType.Array))
+                {
+                    FixPropertiesInJsonRecursively(property.Value);
+                }
+            }
+        }
+        else if (token is JArray array)
+        {
+            foreach (var item in array)
+            {
+                FixPropertiesInJsonRecursively(item);
+            }
+        }
+    }
+
+    private void FixPropertiesRecursively(ScriptActionItem item)
+    {
+        if (item.Properties == null)
+        {
+            item.Properties = new Dictionary<string, object>();
+        }
+        
+        if (item.Actions != null)
+        {
+            foreach (var action in item.Actions)
+            {
+                FixPropertiesRecursively(action);
+            }
+        }
+    }
+
 
     private struct DbRow
     {

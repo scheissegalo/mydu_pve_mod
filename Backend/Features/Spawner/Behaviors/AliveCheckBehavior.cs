@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -53,16 +54,25 @@ public class AliveCheckBehavior(ulong constructId, IPrefab prefab) : IConstructB
         {
             ConstructBehaviorLoop.ConstructHandles.TryRemove(constructId, out _);
             
-            var notAliveCoreUnit = await _constructElementsService
-                .NoCache()
-                .GetElement(constructId, _coreUnitElementId)
-                .WithRetry(new RetryOptions<ElementInfo>(3, _logger)
-                {
-                    OnRetryAttempt = async _ => await Task.Delay(500)
-                });
-            if (notAliveCoreUnit.IsCoreDestroyed())
+            try
             {
-                await context.NotifyConstructDestroyedAsync(new BehaviorEventArgs(constructId, prefab, context));
+                var notAliveCoreUnit = await _constructElementsService
+                    .NoCache()
+                    .GetElement(constructId, _coreUnitElementId)
+                    .WithRetry(new RetryOptions<ElementInfo>(3, _logger)
+                    {
+                        OnRetryAttempt = async _ => await Task.Delay(500)
+                    });
+                if (notAliveCoreUnit.IsCoreDestroyed())
+                {
+                    await context.NotifyConstructDestroyedAsync(new BehaviorEventArgs(constructId, prefab, context));
+                }
+            }
+            catch (Exception ex)
+            {
+                // Handle Orleans serialization errors gracefully
+                // These can occur when the construct is being destroyed or Orleans is having issues
+                _logger.LogWarning(ex, "AliveCheckBehavior[{Construct}]: Failed to check core unit status (construct may be destroyed or Orleans serialization issue)", constructId);
             }
 
             _logger.LogInformation("Construct {Construct} NOT ALIVE", constructId);
@@ -71,7 +81,29 @@ public class AliveCheckBehavior(ulong constructId, IPrefab prefab) : IConstructB
             return;
         }
 
-        context.DamageData = await _constructDamageService.GetConstructDamage(constructId);
+        // Always update DamageData - it may have been reset or not set yet
+        var weaponUnits = await _constructElementsService.GetWeaponUnits(constructId);
+        var weaponUnitsList = weaponUnits.ToList();
+        
+        var damageData = await _constructDamageService.GetConstructDamage(constructId);
+        var weaponsList = damageData.Weapons.ToList();
+        
+        context.DamageData = damageData;
+        
+        // Only log if there's an issue (no weapons found when weapon units exist)
+        if (!weaponsList.Any() && weaponUnitsList.Any())
+        {
+            // Only warn if it's been more than 5 seconds - might be a real issue
+            if (lifeTimeSpan > TimeSpan.FromSeconds(5))
+            {
+                _logger.LogWarning("AliveCheckBehavior[{Construct}]: No weapons in DamageData after processing. " +
+                    "Weapon units found: {WeaponCount}. This usually means: " +
+                    "1) The construct blueprint JSON ({PrefabPath}) doesn't have weapon elements, OR " +
+                    "2) The weapons don't match any ammo types (check WeaponType/Scale), OR " +
+                    "3) The weapons have BaseDamage <= 0.",
+                    constructId, weaponUnitsList.Count, prefab.DefinitionItem.Path);
+            }
+        }
 
         // just to cache it
         await Task.WhenAll([

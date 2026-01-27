@@ -25,6 +25,13 @@ namespace Mod.DynamicEncounters.Features.Spawner.Behaviors;
 
 public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstructBehavior
 {
+    // Alien cores (resource nodes) that should never be targeted
+    private static readonly HashSet<ulong> ExcludedConstructIds = new()
+    {
+        990001, 990002, 990003, 990004, 990005,
+        990006, 990007, 990008, 990009, 990010
+    };
+    
     private bool _active = true;
     private IClusterClient _orleans;
     private ILogger<SelectTargetBehavior> _logger;
@@ -102,13 +109,23 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
             var spatialQuerySw = new StopWatch();
             spatialQuerySw.Start();
 
-            radarContacts = (await _areaScanService.ScanForPlayerContacts(
-                    constructId,
-                    context.Position.Value,
-                    DistanceHelpers.OneSuInMeters * 8
-                ))
+            var allContacts = await _areaScanService.ScanForPlayerContacts(
+                constructId,
+                context.Position.Value,
+                DistanceHelpers.OneSuInMeters * 8
+            );
+            
+            var contactsBeforeSafeZoneFilter = allContacts.Count();
+            
+            radarContacts = allContacts
                 .Where(c => !safeZones.Any(sz => sz.IsPointInside(c.Position)))
+                .Where(c => !ExcludedConstructIds.Contains(c.ConstructId))
                 .ToList();
+
+            _logger.LogDebug("SelectTargetBehavior[{Construct}]: Scanned for contacts at position ({X}, {Y}, {Z}), found {Total} contacts, {Filtered} after safe zone filter", 
+                constructId, 
+                context.Position.Value.x, context.Position.Value.y, context.Position.Value.z,
+                contactsBeforeSafeZoneFilter, radarContacts.Count);
 
             await Task.WhenAll(radarContacts
                 .Select(x => _pveVoxelService.TriggerConstructCacheAsync(x.ConstructId)));
@@ -120,10 +137,13 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
 
         if (!context.HasAnyRadarContact())
         {
+            _logger.LogDebug("SelectTargetBehavior[{Construct}]: No radar contacts found, clearing target", constructId);
             context.SetAutoTargetMovePosition(context.StartPosition ?? context.Sector);
             context.SetAutoTargetConstructId(null);
             return;
         }
+
+        _logger.LogDebug("SelectTargetBehavior[{Construct}]: Found {ContactCount} radar contacts", constructId, radarContacts.Count);
 
         context.RefreshIdleSince();
 
@@ -140,10 +160,23 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
 
         if (selectedTarget == null)
         {
+            _logger.LogDebug("SelectTargetBehavior[{Construct}]: Target selection effect returned no target (effect: {Effect})", 
+                constructId, selectTargetEffect?.GetType().Name ?? "null");
             return;
         }
 
         var targetId = selectedTarget.ConstructId;
+        
+        // Double-check: never target excluded constructs (alien cores)
+        if (ExcludedConstructIds.Contains(targetId))
+        {
+            _logger.LogWarning("SelectTargetBehavior[{Construct}]: Target selection effect returned excluded construct {Target} (alien core), ignoring", 
+                constructId, targetId);
+            return;
+        }
+
+        _logger.LogInformation("SelectTargetBehavior[{Construct}]: Selected target {Target} at distance {Distance}m ({DistanceSu} SU)", 
+            constructId, targetId, selectedTarget.Distance, selectedTarget.Distance / DistanceHelpers.OneSuInMeters);
 
         context.SetAutoTargetConstructId(targetId);
 

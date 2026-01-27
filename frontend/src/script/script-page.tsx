@@ -16,10 +16,17 @@ const ScriptPage: React.FC<PrefabPageProps> = () => {
     const navigate = useNavigate();
 
     const fetchData = async () => {
-        setLoading(true);
-        const response = await getAll();
-        setLoading(false);
-        setData(response);
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await getAll();
+            setData(response);
+        } catch (err: any) {
+            setError(err.message || 'Failed to fetch data');
+            console.error('Error fetching scripts:', err);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const columns: GridColDef[] = [
@@ -38,7 +45,7 @@ const ScriptPage: React.FC<PrefabPageProps> = () => {
     };
 
     return (
-        <DashboardContainer title="Scripts">
+        <DashboardContainer title="Scripts" error={error}>
             <p>Scripts can perform many kinds of actions in the game - from spawning constructs to giving player titles or quanta</p>
             <Stack spacing={2} direction="row">
                 <Button variant="contained" onClick={handleAddClick}>Add</Button>

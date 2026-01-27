@@ -74,7 +74,9 @@ This is deprecated
 * ConstructBehaviorLoopEnabled
 
 How many sectors to generate - choose that based on how powerful your server is
-* SectorsToGenerate - at least 10 is what I'm using on a decent server setup
+* **Note**: The `SectorsToGenerate` setting in `mod_features` is **not used** by the code. Instead, you must set `sector_count` in the `mod_faction_territory` table for each faction-territory combination.
+* To set the number of sectors: `UPDATE mod_faction_territory SET sector_count = 15 WHERE territory_id = 'your-territory-id';`
+* The `SectorsToGenerate` setting in `mod_features` is legacy/unused and can be ignored.
 
 ## Create Construct Definitions (or Prefabs)
 

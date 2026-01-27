@@ -132,12 +132,12 @@ public class MyDuMod : IMod
             name = GetName(),
             actions =
             [
-                new ModActionDefinition
-                {
-                    id = (ulong)ActionType.LoadPlayerBoardApp,
-                    context = ModActionContext.Global,
-                    label = "Actions\\Open player board"
-                },
+                // new ModActionDefinition
+                // {
+                //     id = (ulong)ActionType.LoadPlayerBoardApp,
+                //     context = ModActionContext.Global,
+                //     label = "Actions\\Open player board"
+                // },
                 new ModActionDefinition
                 {
                     id = (ulong)ActionType.Interact,
@@ -155,7 +155,13 @@ public class MyDuMod : IMod
                     id = (ulong)ActionType.InviteToParty,
                     context = ModActionContext.Avatar,
                     label = "Group\\Invite to Group"
-                },
+                }
+                // new ModActionDefinition
+                // {
+                //     id = (ulong)ActionType.ShootWeapon,
+                //     context = ModActionContext.Construct,
+                //     label = "Shoot Weapon"
+                // },
             ]
         };
 
@@ -164,19 +170,25 @@ public class MyDuMod : IMod
 
     public async Task TriggerAction(ulong playerId, ModAction action)
     {
+        _logger.LogWarning("MyDuMod: TriggerAction called - actionId: {ActionId}, constructId: {ConstructId}, modName: {ModName}, playerId: {PlayerId}", 
+            action.actionId, action.constructId, action.modName, playerId);
         try
         {
             await TriggerActionInternal(playerId, action);
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Failed to Trigger Mod Action {Id}", action.actionId);
+            _logger.LogError(e, "MyDuMod: Failed to Trigger Mod Action {Id}. Exception: {ExceptionType} - {ExceptionMessage}. StackTrace: {StackTrace}", 
+                action.actionId, e.GetType().Name, e.Message, e.StackTrace);
             throw;
         }
     }
 
     private async Task TriggerActionInternal(ulong playerId, ModAction action)
     {
+        _logger.LogWarning("MyDuMod: TriggerActionInternal called - actionId: {ActionId}, constructId: {ConstructId}, modName: {ModName}", 
+            action.actionId, action.constructId, action.modName);
+        
         if (action.actionId == (ulong)ActionType.PushConstructData)
         {
             var pushConstructData = new PushConstructDataAction(_cachedConstructDataService);
@@ -187,12 +199,12 @@ public class MyDuMod : IMod
         _playerRateLimiter.TrackRequest(playerId);
         if (_playerRateLimiter.ExceededRateLimit(playerId))
         {
-            _logger.LogWarning("Player {Player} Rate Limited", playerId);
+            _logger.LogWarning("MyDuMod: Player {Player} Rate Limited", playerId);
             return;
         }
 
-        _logger.LogInformation(
-            "Received Trigger Action from Player({PlayerId} != {ActionPlayerId}): {ActionId} | {Content}",
+        _logger.LogWarning(
+            "MyDuMod: Received Trigger Action from Player({PlayerId} != {ActionPlayerId}): {ActionId} | {Content}",
             playerId,
             action.playerId,
             action.actionId,
@@ -205,7 +217,9 @@ public class MyDuMod : IMod
         switch ((ActionType)action.actionId)
         {
             case ActionType.ShootWeapon:
+                _logger.LogWarning("MyDuMod: Processing ShootWeapon action for construct {ConstructId}", action.constructId);
                 await _shootWeaponAction.HandleAction(playerId, action);
+                _logger.LogWarning("MyDuMod: ShootWeapon action completed for construct {ConstructId}", action.constructId);
                 break;
             case ActionType.SendConstructAppear:
                 var sendConstructAppearAction = new SendConstructAppearAction(_provider);
@@ -267,13 +281,25 @@ public class MyDuMod : IMod
                 ).ContinueWith(x => x.Result.NotifyPlayer(_provider, playerId));
                 break;
             case ActionType.LoadPlayerParty:
-                await _injection.InjectJs(playerId, Resources.CommonJs);
+                try
+                {
+                    _logger.LogInformation("LoadPlayerParty: Injecting CommonJs");
+                    await _injection.InjectJs(playerId, Resources.CommonJs);
 
-                var fetchPlayerPartyForLoad = new FetchPartyDataAction(_provider);
-                await fetchPlayerPartyForLoad.HandleAction(playerId, action);
+                    _logger.LogInformation("LoadPlayerParty: Fetching party data");
+                    var fetchPlayerPartyForLoad = new FetchPartyDataAction(_provider);
+                    await fetchPlayerPartyForLoad.HandleAction(playerId, action);
 
-                var renderPlayerParty = new RenderPartyAppAction();
-                await renderPlayerParty.HandleAction(playerId, action);
+                    _logger.LogInformation("LoadPlayerParty: Rendering party app");
+                    var renderPlayerParty = new RenderPartyAppAction();
+                    await renderPlayerParty.HandleAction(playerId, action);
+                    _logger.LogInformation("LoadPlayerParty: Completed successfully");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "LoadPlayerParty: Error at step - {ExceptionType}: {Message}", ex.GetType().Name, ex.Message);
+                    throw;
+                }
                 break;
             case ActionType.FetchPlayerParty:
                 var fetchPlayerParty = new FetchPartyDataAction(_provider);
@@ -313,25 +339,39 @@ public class MyDuMod : IMod
                 await _injection.InjectJs(playerId, Resources.NpcAppJs);
                 break;
             case ActionType.LoadPlayerBoardApp:
-                await _injection.InjectJs(playerId, Resources.CommonJs);
-                await _injection.InjectJs(playerId, Resources.CreateRootDivJs);
-                await _injection.InjectJs(playerId, "window.modApi.setPage('player');");
+                try
+                {
+                    _logger.LogInformation("LoadPlayerBoardApp: Injecting CommonJs");
+                    await _injection.InjectJs(playerId, Resources.CommonJs);
+                    _logger.LogInformation("LoadPlayerBoardApp: Injecting CreateRootDivJs");
+                    await _injection.InjectJs(playerId, Resources.CreateRootDivJs);
+                    _logger.LogInformation("LoadPlayerBoardApp: Setting page to 'player'");
+                    await _injection.InjectJs(playerId, "window.modApi.setPage('player');");
 
-                await TriggerActionInternal(
-                    playerId,
-                    new ModAction
-                    {
-                        playerId = action.playerId,
-                        actionId = (ulong)ActionType.RefreshPlayerQuestList,
-                        constructId = action.constructId,
-                        elementId = action.elementId,
-                        modName = action.modName,
-                        payload = action.payload
-                    }
-                );
+                    _logger.LogInformation("LoadPlayerBoardApp: Triggering RefreshPlayerQuestList");
+                    await TriggerActionInternal(
+                        playerId,
+                        new ModAction
+                        {
+                            playerId = action.playerId,
+                            actionId = (ulong)ActionType.RefreshPlayerQuestList,
+                            constructId = action.constructId,
+                            elementId = action.elementId,
+                            modName = action.modName,
+                            payload = action.payload
+                        }
+                    );
 
-                await _injection.InjectCss(playerId, Resources.NpcAppCss);
-                await _injection.InjectJs(playerId, Resources.NpcAppJs);
+                    _logger.LogInformation("LoadPlayerBoardApp: Injecting CSS and JS");
+                    await _injection.InjectCss(playerId, Resources.NpcAppCss);
+                    await _injection.InjectJs(playerId, Resources.NpcAppJs);
+                    _logger.LogInformation("LoadPlayerBoardApp: Completed successfully");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "LoadPlayerBoardApp: Error at step - {ExceptionType}: {Message}", ex.GetType().Name, ex.Message);
+                    throw;
+                }
                 break;
             case ActionType.RefreshNpcQuestList:
                 var refreshedNpcQuests = JsonConvert.DeserializeObject<QueryNpcQuests>(action.payload);
@@ -354,17 +394,27 @@ public class MyDuMod : IMod
 
                 break;
             case ActionType.RefreshPlayerQuestList:
-
-                var playerQuestJsonData = await questApi.GetPlayerQuestsAsync(
-                    playerId
-                );
-
-                await _injection.UploadJson(playerId, "player-quests", playerQuestJsonData);
-                await _injection.SetContext(playerId, new
+                try
                 {
-                    playerId
-                });
+                    _logger.LogInformation("RefreshPlayerQuestList: Fetching player quests for player {PlayerId}", playerId);
+                    var playerQuestJsonData = await questApi.GetPlayerQuestsAsync(
+                        playerId
+                    );
 
+                    _logger.LogInformation("RefreshPlayerQuestList: Uploading JSON data");
+                    await _injection.UploadJson(playerId, "player-quests", playerQuestJsonData);
+                    _logger.LogInformation("RefreshPlayerQuestList: Setting context");
+                    await _injection.SetContext(playerId, new
+                    {
+                        playerId
+                    });
+                    _logger.LogInformation("RefreshPlayerQuestList: Completed successfully");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "RefreshPlayerQuestList: Error - {ExceptionType}: {Message}", ex.GetType().Name, ex.Message);
+                    throw;
+                }
                 break;
             case ActionType.CloseBoard:
                 await _injection.InjectJs(playerId, "modApi.removeAppRoot()");

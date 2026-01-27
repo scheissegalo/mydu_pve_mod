@@ -21,10 +21,17 @@ const SectorInstancePage: React.FC<PrefabPageProps> = () => {
     const [dialogAction, setDialogAction] = useState("");
 
     const fetchData = async () => {
-        setLoading(true);
-        const response = await getAll();
-        setLoading(false);
-        setData(response);
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await getAll();
+            setData(response);
+        } catch (err: any) {
+            setError(err.message || 'Failed to fetch data');
+            console.error('Error fetching sector instances:', err);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const columns: GridColDef[] = [
@@ -104,7 +111,7 @@ const SectorInstancePage: React.FC<PrefabPageProps> = () => {
     }
 
     return (
-        <DashboardContainer title="Sector Instances">
+        <DashboardContainer title="Sector Instances" error={error}>
             <p>Sectors that have been procedurally generated and loaded</p>
             <Stack spacing={2} direction="row">
                 <Button variant="contained" color="primary">Expire</Button>

@@ -4,6 +4,7 @@
         <TargetFramework>net6.0</TargetFramework>
         <LangVersion>12</LangVersion>
         <PackageId>Mod.DynamicEncounters</PackageId>
+        <RootNamespace>Mod.DynamicEncounters.Overrides</RootNamespace>
     </PropertyGroup>
     <ItemGroup>
         <Reference Include="Grains">
