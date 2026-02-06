@@ -64,6 +64,11 @@ public class PrefabItemDatabaseRepository(IServiceProvider provider) : IPrefabIt
                 new { key })
             ).ToList();
 
+        if (rows.Count == 0)
+        {
+            return null;
+        }
+
         return MapToModel(rows[0]);
     }
 

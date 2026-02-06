@@ -105,6 +105,6 @@ public class VoxelServiceClient(IServiceProvider provider) : IVoxelServiceClient
     private static string GetPveVoxelServiceBaseUrl()
         => EnvironmentVariableHelper.GetEnvironmentVarOrDefault(
             UrlEnvironmentVariable,
-            "http://localhost:5050"
+            "http://voxel:8081" // Docker service name + internal port (8081). For host access use localhost:5050
         );
 }

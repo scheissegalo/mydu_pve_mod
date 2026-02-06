@@ -1,0 +1,122 @@
+{
+    "Area": {
+        "Type": "sphere",
+        "Height": 200000,
+        "Radius": 1,
+        "Rotation": {
+            "W": 1,
+            "X": 0,
+            "Y": 0,
+            "Z": 0
+        },
+        "MinRadius": 100000
+    },
+    "Name": "spawn-basic-pirate-group",
+    "Prefab": null,
+    "Script": null,
+    "Sector": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+    },
+    "Actions": [
+        {
+            "Area": {
+                "Type": "sphere",
+                "Radius": 100000
+            },
+            "Name": "spawn-basic-pirate-group",
+            "Type": "spawn",
+            "Events": {
+                "OnLoad": [
+                    {
+                        "Tags": [
+                            "ore-1-2",
+                            "parts-1-2"
+                        ],
+                        "Type": "spawn-loot",
+                        "Value": 2000
+                    }
+                ],
+                "OnSectorEnter": []
+            },
+            "Prefab": "basic-pirate",
+            "Script": null,
+            "Sector": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "Actions": [],
+            "Message": null,
+            "Position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "ConstructId": 0,
+            "MaxQuantity": 5,
+            "MinQuantity": 2
+        },
+        {
+            "Area": {
+                "Type": "sphere",
+                "Radius": 100000
+            },
+            "Name": "test-spawn-normal-pirate",
+            "Type": "spawn",
+            "Events": {
+                "OnLoad": [
+                    {
+                        "Tags": [
+                            "ore-1-2",
+                            "parts-1-2"
+                        ],
+                        "Type": "spawn-loot",
+                        "Value": 2000
+                    }
+                ],
+                "OnSectorEnter": []
+            },
+            "Prefab": "basic-pirate",
+            "Script": null,
+            "Actions": [],
+            "Message": null,
+            "Position": null,
+            "ConstructId": 0,
+            "MaxQuantity": 2,
+            "MinQuantity": 1
+        },
+        {
+            "Tags": [
+                "poi"
+            ],
+            "Type": "for-each-handle-with-tag",
+            "Actions": [
+                {
+                    "Type": "remove-poi"
+                }
+            ]
+        },
+        {
+            "Type": "expire-sector"
+        },
+        {
+            "Type": "random",
+            "Actions": [
+                {
+                    "Type": "message",
+                    "Message": "Looks who's come to play!"
+                },
+                {
+                    "Type": "message",
+                    "Message": "I have you now!"
+                },
+                {
+                    "Type": "message",
+                    "Message": "Fresh meat on radar!"
+                }
+            ]
+        }
+    ]
+}

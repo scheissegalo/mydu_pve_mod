@@ -1,0 +1,116 @@
+{
+    "Mods": {
+        "Weapon": {
+            "Damage": 1,
+            "Accuracy": 1,
+            "CycleTime": 1,
+            "FalloffDistance": 1,
+            "FalloffTracking": 1,
+            "OptimalDistance": 1,
+            "OptimalTracking": 1,
+            "FalloffAimingCone": 1,
+            "OptimalAimingCone": 1
+        },
+        "Velocity": {
+            "Enabled": true,
+            "FarDistanceSu": 1.5,
+            "BoosterEnabled": false,
+            "TooCloseDistanceM": 15000,
+            "InsideOptimalRange": {
+                "Negative": 1,
+                "Positive": 1
+            },
+            "BrakeDistanceFactor": 2,
+            "OutsideOptimalRange": {
+                "Negative": 0.25,
+                "Positive": 1.2
+            },
+            "BoosterAccelerationG": 5,
+            "OutsideOptimalRange2X": {
+                "Negative": 0.5,
+                "Positive": 1.5
+            }
+        }
+    },
+    "Name": "extreme-pirate",
+    "Path": "Hard_Pirate.json",
+    "IsNpc": false,
+    "Events": {
+        "OnShieldLow": [
+            {
+                "Type": "message",
+                "Message": "Our shields are weak!"
+            }
+        ],
+        "OnShieldDown": [
+            {
+                "Type": "message",
+                "Message": "Our shields are down!"
+            }
+        ],
+        "OnShieldHalf": [
+            {
+                "Type": "random",
+                "Actions": [
+                    {
+                        "Type": "message",
+                        "Message": "Our shields are taking a beating!"
+                    },
+                    {
+                        "Type": "message",
+                        "Message": "You will pay for this!"
+                    }
+                ]
+            }
+        ],
+        "OnDestruction": [
+            {
+                "Type": "message",
+                "Message": "AAAHAAAHHH!"
+            }
+        ],
+        "OnCoreStressHigh": [
+            {
+                "Type": "message",
+                "Message": "Our reactor is overloading!"
+            }
+        ]
+    },
+    "Folder": "pve",
+    "Skills": [],
+    "OwnerId": 4,
+    "AmmoTier": 3,
+    "AmmoItems": [
+        "AmmoLaserLargeElectromagneticAdvancedPrecision",
+        "AmmoLaserLargeThermicAdvancedPrecision"
+    ],
+    "FactionId": 0,
+    "AmmoVariant": "Agile",
+    "MaxSpeedKph": 50000,
+    "MinSpeedKph": 2000,
+    "WeaponItems": [
+        "WeaponLaserLargePrecision4"
+    ],
+    "DamagesVoxel": true,
+    "AccelerationG": 5,
+    "RealismFactor": 0,
+    "RotationSpeed": 0.3,
+    "IsUntargetable": false,
+    "MaxWeaponCount": 6,
+    "TargetDistance": 20000,
+    "RandomNameGroup": "",
+    "InitialBehaviors": [
+        "aggressive",
+        "follow-target"
+    ],
+    "ServerProperties": {
+        "Header": {
+            "PrettyName": "Mother Pirate"
+        },
+        "IsDynamicWreck": false
+    },
+    "UseRandomNameGroup": false,
+    "UsesCustomShootAction": true,
+    "SectorExpirationSeconds": 1800,
+    "TargetDecisionTimeSeconds": 30
+}

@@ -32,7 +32,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         990001, 990002, 990003, 990004, 990005,
         990006, 990007, 990008, 990009, 990010
     };
-    
+
     private IClusterClient _orleans;
     private ILogger<AggressiveBehavior> _logger;
     private IConstructService _constructService;
@@ -71,7 +71,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         {
             return; // Too early, wait for AliveCheckBehavior
         }
-        
+
         var weaponsList = context.DamageData.Weapons.ToList();
         if (!weaponsList.Any())
         {
@@ -80,12 +80,12 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
             {
                 return; // Too early, wait for AliveCheckBehavior
             }
-            
-            _logger.LogWarning("AggressiveBehavior[{Construct}]: No weapons in DamageData after {Age}s", 
+
+            _logger.LogWarning("AggressiveBehavior[{Construct}]: No weapons in DamageData after {Age}s",
                 constructId, lifeTimeSpan.TotalSeconds);
             return;
         }
-        
+
         if (!context.IsAlive)
         {
             _active = false;
@@ -159,7 +159,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         {
             return; // No functional damaging weapons available
         }
-        
+
         var targetDistance = context.GetTargetPosition().Distance(context.Position.Value);
         var weapon = context.GetBestFunctionalWeaponByTargetDistance(targetDistance);
 
@@ -245,7 +245,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         var functionalWeaponFactor = Math.Clamp((double)functionalCount / totalCount, 0d, 1d);
 
         context.BehaviorContext.FunctionalWeaponFactor = functionalWeaponFactor;
-        
+
         context.QuantityModifier = functionalCount;
         context.QuantityModifier = Math.Clamp(context.QuantityModifier, 0, prefab.DefinitionItem.MaxWeaponCount);
 
@@ -258,7 +258,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         SetShootTotalDeltaTime(context.BehaviorContext, totalDeltaTime);
 
         var w = context.WeaponItem;
-        
+
         var ammoType = w.GetAmmoItems()
             .Where(x => x.Level == prefab.DefinitionItem.AmmoTier &&
                         x.ItemTypeName.Contains(prefab.DefinitionItem.AmmoVariant,
@@ -267,7 +267,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
 
         if (ammoType.Count == 0)
         {
-            _logger.LogError("AggressiveBehavior[{Construct}]: No matching ammo found for weapon {Weapon} (tier: {Tier}, variant: {Variant})", 
+            _logger.LogError("AggressiveBehavior[{Construct}]: No matching ammo found for weapon {Weapon} (tier: {Tier}, variant: {Variant})",
                 constructId, w.ItemTypeName, prefab.DefinitionItem.AmmoTier, prefab.DefinitionItem.AmmoVariant);
             return;
         }
@@ -318,6 +318,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         if (shootPointOutcome.Success)
         {
             context.HitPosition = shootPointOutcome.LocalPosition;
+            _logger.LogError("Hit Pos: {Pos}", context.HitPosition);
         }
         else
         {
@@ -350,162 +351,210 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
 
         // TriggerModAction routing is broken - actions aren't reaching MyDuMod.TriggerAction
         // So we'll use PropagateShotImpact directly, which is what actually fires shots and applies damage
-        try
+
+        if (context.BehaviorContext.CustomActionShootEnabled)
         {
-            var bank = context.BehaviorContext.Provider.GetGameplayBank();
-            var directServiceGrain = _orleans.GetDirectServiceGrain();
-            
-            // Get weapon position
-            var shooterConstructInfoGrain = _orleans.GetConstructInfoGrain(constructId);
-            var shooterInfo = await shooterConstructInfoGrain.Get();
-            var shooterRot = shooterInfo.rData.rotation;
-            
-            var weaponUnits = await _constructElementsService.GetWeaponUnits(constructId);
-            var firstWeapon = weaponUnits.FirstOrDefault();
-            
-            Vec3 shooterWeaponLocalPos;
-            Vec3 shooterWeaponPos;
-            if (firstWeapon != default(ElementId))
+            var shootWeaponData = new ShootWeaponData
             {
-                var firstWeaponElementInfo = await _constructElementsService.GetElement(constructId, firstWeapon);
-                shooterWeaponLocalPos = firstWeaponElementInfo.position;
-                var weaponPosVec3 = VectorMathHelper.CalculateWorldPosition(
-                    shooterWeaponLocalPos.ToVector3(),
-                    context.ConstructPosition.ToVector3(),
-                    new System.Numerics.Quaternion((float)shooterRot.x, (float)shooterRot.y, (float)shooterRot.z, (float)shooterRot.w)
-                );
-                shooterWeaponPos = new Vec3 { x = weaponPosVec3.X, y = weaponPosVec3.Y, z = weaponPosVec3.Z };
-            }
-            else
-            {
-                // Fallback to construct center if no weapon found
-                shooterWeaponLocalPos = new Vec3 { x = 0, y = 0, z = 0 };
-                shooterWeaponPos = context.ConstructPosition;
-            }
-            
-            // Get target construct center position for hit calculation
-            var targetPosition = await _sceneGraph.GetConstructCenterWorldPosition(context.TargetConstructId);
-            var targetConstructInfoGrain = _orleans.GetConstructInfoGrain(context.TargetConstructId);
-            var targetInfo = await targetConstructInfoGrain.Get();
-            var targetRot = targetInfo.rData.rotation;
-            var targetSize = targetInfo.rData.geometry.size; // This is a double (scalar size)
-            
-            // Add random offset to hit position for visual variety (still within construct bounds)
-            // Use 30% of construct size as max offset to ensure we still hit the ship
-            var hitRandom = context.BehaviorContext.Provider.GetRequiredService<IRandomProvider>().GetRandom();
-            var maxOffset = targetSize * 0.3; // 30% of construct size
-            var offsetX = (hitRandom.NextDouble() - 0.5) * maxOffset;
-            var offsetY = (hitRandom.NextDouble() - 0.5) * maxOffset;
-            var offsetZ = (hitRandom.NextDouble() - 0.5) * maxOffset;
-            
-            // Calculate hit position in local space with offset
-            var hitPositionLocalVec3 = VectorMathHelper.CalculateRelativePosition(
-                targetPosition.ToVector3(),
-                targetInfo.rData.position.ToVector3(),
-                new System.Numerics.Quaternion((float)targetRot.x, (float)targetRot.y, (float)targetRot.z, (float)targetRot.w)
-            );
-            
-            // Apply random offset in local space
-            hitPositionLocalVec3 = new System.Numerics.Vector3(
-                hitPositionLocalVec3.X + (float)offsetX,
-                hitPositionLocalVec3.Y + (float)offsetY,
-                hitPositionLocalVec3.Z + (float)offsetZ
-            );
-            
-            var hitPositionLocal = new Vec3 { x = hitPositionLocalVec3.X, y = hitPositionLocalVec3.Y, z = hitPositionLocalVec3.Z };
-            
-            // Convert back to world position for the actual hit
-            var hitPositionWorldVec3 = VectorMathHelper.CalculateWorldPosition(
-                hitPositionLocalVec3,
-                targetInfo.rData.position.ToVector3(),
-                new System.Numerics.Quaternion((float)targetRot.x, (float)targetRot.y, (float)targetRot.z, (float)targetRot.w)
-            );
-            var hitPositionWorld = new Vec3 { x = hitPositionWorldVec3.X, y = hitPositionWorldVec3.Y, z = hitPositionWorldVec3.Z };
-            
-            // Get weapon and ammo IDs
-            var weaponDef = bank.GetDefinition(weapon.weaponItem);
-            var ammoDef = bank.GetDefinition(weapon.ammoItem);
-            
-            if (weaponDef == null || ammoDef == null)
-            {
-                _logger.LogError("AggressiveBehavior[{Construct}]: Could not find weapon or ammo definition - weapon: {Weapon}, ammo: {Ammo}", 
-                    constructId, weapon.weaponItem, weapon.ammoItem);
-                return;
-            }
-            
-            // Calculate hit ratio to determine if shot hits
-            var npcCenterPosition = await _sceneGraph.GetConstructCenterWorldPosition(constructId);
-            var hitRatio = CalculateHitRatio(
-                npcCenterPosition,
-                targetPosition,
-                weapon,
-                hitPositionWorld,
-                5.0 // crossSection
-            );
-            
-            var hitRoll = new Random().NextDouble();
-            var isHit = hitRoll <= hitRatio;
-            
-            // Apply damage if hit and collect results for WeaponShot
-            double shieldDamage = 0;
-            double rawShieldDamage = 0;
-            bool coreUnitDestroyed = false;
-            
-            if (isHit)
-            {
-                var targetConstructFightGrain = _orleans.GetConstructFightGrain(context.TargetConstructId);
-                var hitResult = await targetConstructFightGrain.ConstructTakeHit(new WeaponShotPower
-                {
-                    ammoType = ammoDef.Id,
-                    power = weapon.damage,
-                    originPlayerId = ModBase.Bot.PlayerId,
-                    originConstructId = constructId
-                });
-                
-                shieldDamage = hitResult.shieldDamage;
-                rawShieldDamage = hitResult.rawShieldDamage;
-                coreUnitDestroyed = hitResult.coreUnitStressDestroyed;
-            }
-            
-            // Create WeaponShot and propagate - this shows the visual effect
-            var weaponShot = new WeaponShot
-            {
-                id = (ulong)TimePoint.Now().networkTime,
-                originConstructId = constructId,
-                originPositionWorld = shooterWeaponPos,
-                originPositionLocal = shooterWeaponLocalPos,
-                targetConstructId = context.TargetConstructId,
-                weaponType = weaponDef.Id,
-                ammoType = ammoDef.Id,
-                impactPositionWorld = hitPositionWorld,
-                impactPositionLocal = hitPositionLocal,
-                impactElementType = 3,
-                shieldDamage = shieldDamage,
-                rawShieldDamage = rawShieldDamage,
-                coreUnitDestroyed = coreUnitDestroyed
+                Weapon = weapon,
+                CrossSection = 5,
+                ShooterName = w.DisplayName,
+                ShooterPosition = context.ConstructPosition,
+                ShooterConstructId = constructId,
+                LocalHitPosition = context.HitPosition,
+                ShooterConstructSize = context.ConstructSize,
+                ShooterPlayerId = ModBase.Bot.PlayerId,
+                TargetConstructId = context.TargetConstructId,
+                DamagesVoxel = context.BehaviorContext.DamagesVoxel
             };
-            
-            await directServiceGrain.PropagateShotImpact(weaponShot);
+
+            var modManagerGrain = _orleans.GetModManagerGrain();
+            await modManagerGrain.TriggerModAction(
+                ModBase.Bot.PlayerId,
+                new ActionBuilder()
+                    .ShootWeapon(shootWeaponData)
+                    .WithConstructId(constructId)
+                    .Build()
+            );
         }
-        catch (Exception ex)
+        else
         {
-            _logger.LogError(ex, "AggressiveBehavior[{Construct}]: PropagateShotImpact failed with exception", constructId);
-            throw;
+            await context.NpcShotGrain.Fire(
+                w.DisplayName,
+                context.ConstructPosition,
+                constructId,
+                context.ConstructSize,
+                context.TargetConstructId,
+                context.TargetPosition,
+                weapon,
+                5,
+                context.HitPosition
+            );
         }
-        
+
+        _logger.LogInformation("Construct {Construct} Shot Weapon. {Weapon} / {Ammo}",
+    constructId,
+    w.ItemTypeName,
+    ammoItem.ItemTypeName
+);
+
+
         // try
         // {
         //     var bank = context.BehaviorContext.Provider.GetGameplayBank();
         //     var directServiceGrain = _orleans.GetDirectServiceGrain();
-            
+
         //     // Get weapon position
         //     var shooterConstructInfoGrain = _orleans.GetConstructInfoGrain(constructId);
         //     var shooterInfo = await shooterConstructInfoGrain.Get();
         //     var shooterRot = shooterInfo.rData.rotation;
-            
+
         //     var weaponUnits = await _constructElementsService.GetWeaponUnits(constructId);
         //     var firstWeapon = weaponUnits.FirstOrDefault();
-            
+
+        //     Vec3 shooterWeaponLocalPos;
+        //     Vec3 shooterWeaponPos;
+        //     if (firstWeapon != default(ElementId))
+        //     {
+        //         var firstWeaponElementInfo = await _constructElementsService.GetElement(constructId, firstWeapon);
+        //         shooterWeaponLocalPos = firstWeaponElementInfo.position;
+        //         var weaponPosVec3 = VectorMathHelper.CalculateWorldPosition(
+        //             shooterWeaponLocalPos.ToVector3(),
+        //             context.ConstructPosition.ToVector3(),
+        //             new System.Numerics.Quaternion((float)shooterRot.x, (float)shooterRot.y, (float)shooterRot.z, (float)shooterRot.w)
+        //         );
+        //         shooterWeaponPos = new Vec3 { x = weaponPosVec3.X, y = weaponPosVec3.Y, z = weaponPosVec3.Z };
+        //     }
+        //     else
+        //     {
+        //         // Fallback to construct center if no weapon found
+        //         shooterWeaponLocalPos = new Vec3 { x = 0, y = 0, z = 0 };
+        //         shooterWeaponPos = context.ConstructPosition;
+        //     }
+
+        //     // Get target construct center position for hit calculation
+        //     var targetPosition = await _sceneGraph.GetConstructCenterWorldPosition(context.TargetConstructId);
+        //     var targetConstructInfoGrain = _orleans.GetConstructInfoGrain(context.TargetConstructId);
+        //     var targetInfo = await targetConstructInfoGrain.Get();
+        //     var targetRot = targetInfo.rData.rotation;
+        //     var targetSize = targetInfo.rData.geometry.size; // This is a double (scalar size)
+
+        //     // Add random offset to hit position for visual variety (still within construct bounds)
+        //     // Use 30% of construct size as max offset to ensure we still hit the ship
+        //     var hitRandom = context.BehaviorContext.Provider.GetRequiredService<IRandomProvider>().GetRandom();
+        //     var maxOffset = targetSize * 0.3; // 30% of construct size
+        //     var offsetX = (hitRandom.NextDouble() - 0.5) * maxOffset;
+        //     var offsetY = (hitRandom.NextDouble() - 0.5) * maxOffset;
+        //     var offsetZ = (hitRandom.NextDouble() - 0.5) * maxOffset;
+
+        //     // Calculate hit position in local space with offset
+        //     var hitPositionLocalVec3 = VectorMathHelper.CalculateRelativePosition(
+        //         targetPosition.ToVector3(),
+        //         targetInfo.rData.position.ToVector3(),
+        //         new System.Numerics.Quaternion((float)targetRot.x, (float)targetRot.y, (float)targetRot.z, (float)targetRot.w)
+        //     );
+
+        //     // Apply random offset in local space
+        //     hitPositionLocalVec3 = new System.Numerics.Vector3(
+        //         hitPositionLocalVec3.X + (float)offsetX,
+        //         hitPositionLocalVec3.Y + (float)offsetY,
+        //         hitPositionLocalVec3.Z + (float)offsetZ
+        //     );
+
+        //     var hitPositionLocal = new Vec3 { x = hitPositionLocalVec3.X, y = hitPositionLocalVec3.Y, z = hitPositionLocalVec3.Z };
+
+        //     // Convert back to world position for the actual hit
+        //     var hitPositionWorldVec3 = VectorMathHelper.CalculateWorldPosition(
+        //         hitPositionLocalVec3,
+        //         targetInfo.rData.position.ToVector3(),
+        //         new System.Numerics.Quaternion((float)targetRot.x, (float)targetRot.y, (float)targetRot.z, (float)targetRot.w)
+        //     );
+        //     var hitPositionWorld = new Vec3 { x = hitPositionWorldVec3.X, y = hitPositionWorldVec3.Y, z = hitPositionWorldVec3.Z };
+
+        //     // Get weapon and ammo IDs
+        //     var weaponDef = bank.GetDefinition(weapon.weaponItem);
+        //     var ammoDef = bank.GetDefinition(weapon.ammoItem);
+
+        //     if (weaponDef == null || ammoDef == null)
+        //     {
+        //         _logger.LogError("AggressiveBehavior[{Construct}]: Could not find weapon or ammo definition - weapon: {Weapon}, ammo: {Ammo}",
+        //             constructId, weapon.weaponItem, weapon.ammoItem);
+        //         return;
+        //     }
+
+        //     // Calculate hit ratio to determine if shot hits
+        //     var npcCenterPosition = await _sceneGraph.GetConstructCenterWorldPosition(constructId);
+        //     var hitRatio = CalculateHitRatio(
+        //         npcCenterPosition,
+        //         targetPosition,
+        //         weapon,
+        //         hitPositionWorld,
+        //         5.0 // crossSection
+        //     );
+
+        //     var hitRoll = new Random().NextDouble();
+        //     var isHit = hitRoll <= hitRatio;
+
+        //     // Apply damage if hit and collect results for WeaponShot
+        //     double shieldDamage = 0;
+        //     double rawShieldDamage = 0;
+        //     bool coreUnitDestroyed = false;
+
+        //     if (isHit)
+        //     {
+        //         var targetConstructFightGrain = _orleans.GetConstructFightGrain(context.TargetConstructId);
+        //         var hitResult = await targetConstructFightGrain.ConstructTakeHit(new WeaponShotPower
+        //         {
+        //             ammoType = ammoDef.Id,
+        //             power = weapon.damage,
+        //             originPlayerId = ModBase.Bot.PlayerId,
+        //             originConstructId = constructId
+        //         });
+
+        //         shieldDamage = hitResult.shieldDamage;
+        //         rawShieldDamage = hitResult.rawShieldDamage;
+        //         coreUnitDestroyed = hitResult.coreUnitStressDestroyed;
+        //     }
+
+        //     // Create WeaponShot and propagate - this shows the visual effect
+        //     var weaponShot = new WeaponShot
+        //     {
+        //         id = (ulong)TimePoint.Now().networkTime,
+        //         originConstructId = constructId,
+        //         originPositionWorld = shooterWeaponPos,
+        //         originPositionLocal = shooterWeaponLocalPos,
+        //         targetConstructId = context.TargetConstructId,
+        //         weaponType = weaponDef.Id,
+        //         ammoType = ammoDef.Id,
+        //         impactPositionWorld = hitPositionWorld,
+        //         impactPositionLocal = hitPositionLocal,
+        //         impactElementType = 3,
+        //         shieldDamage = shieldDamage,
+        //         rawShieldDamage = rawShieldDamage,
+        //         coreUnitDestroyed = coreUnitDestroyed
+        //     };
+
+        //     await directServiceGrain.PropagateShotImpact(weaponShot);
+        // }
+        // catch (Exception ex)
+        // {
+        //     _logger.LogError(ex, "AggressiveBehavior[{Construct}]: PropagateShotImpact failed with exception", constructId);
+        //     throw;
+        // }
+
+        // try
+        // {
+        //     var bank = context.BehaviorContext.Provider.GetGameplayBank();
+        //     var directServiceGrain = _orleans.GetDirectServiceGrain();
+
+        //     // Get weapon position
+        //     var shooterConstructInfoGrain = _orleans.GetConstructInfoGrain(constructId);
+        //     var shooterInfo = await shooterConstructInfoGrain.Get();
+        //     var shooterRot = shooterInfo.rData.rotation;
+
+        //     var weaponUnits = await _constructElementsService.GetWeaponUnits(constructId);
+        //     var firstWeapon = weaponUnits.FirstOrDefault();
+
         //     Vec3 shooterWeaponLocalPos;
         //     Vec3 shooterWeaponPos;
         //     if (firstWeapon != default(ElementId))
@@ -525,25 +574,25 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         //         shooterWeaponLocalPos = new Vec3 { x = 0, y = 0, z = 0 };
         //         shooterWeaponPos = context.ConstructPosition;
         //     }
-            
+
         //     // Resolve hit position to world coordinates
         //     var hitPositionWorld = await _sceneGraph.ResolveWorldLocation(new RelativeLocation
         //     {
         //         constructId = context.TargetConstructId,
         //         position = context.HitPosition
         //     });
-            
+
         //     // Get weapon and ammo IDs
         //     var weaponDef = bank.GetDefinition(weapon.weaponItem);
         //     var ammoDef = bank.GetDefinition(weapon.ammoItem);
-            
+
         //     if (weaponDef == null || ammoDef == null)
         //     {
         //         _logger.LogError("AggressiveBehavior[{Construct}]: Could not find weapon or ammo definition - weapon: {Weapon}, ammo: {Ammo}", 
         //             constructId, weapon.weaponItem, weapon.ammoItem);
         //         return;
         //     }
-            
+
         //     // Create WeaponShot and propagate
         //     var weaponShot = new WeaponShot
         //     {
@@ -559,12 +608,12 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         //         impactElementType = 3,
         //         coreUnitDestroyed = false
         //     };
-            
+
         //     _logger.LogWarning("AggressiveBehavior[{Construct}]: Propagating shot - weapon: {WeaponId}, ammo: {AmmoId}, target: {Target}", 
         //         constructId, weaponShot.weaponType, weaponShot.ammoType, context.TargetConstructId);
-            
+
         //     await directServiceGrain.PropagateShotImpact(weaponShot);
-            
+
         //     _logger.LogWarning("AggressiveBehavior[{Construct}]: PropagateShotImpact completed successfully", constructId);
         // }
         // catch (Exception ex)
@@ -574,7 +623,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         // }
 
     }
-    
+
     private double CalculateHitRatio(
         Vec3 weaponWorldLocation,
         Vec3 target,
@@ -587,7 +636,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         var distance = weaponWorldLocation.Dist(impactWorldLocation);
         var distanceOptimalValue = weaponUnit.baseOptimalDistance;
         var distanceFallOffValue = weaponUnit.falloffDistance;
-        
+
         // Calculate distance factor (1.0 at optimal, decreasing with distance)
         var distanceFactor = 1.0;
         if (distance > distanceOptimalValue)
@@ -596,17 +645,17 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
             var falloffRange = distanceFallOffValue * 5; // 5x falloff for max range
             distanceFactor = Math.Max(0.0, 1.0 - (excessDistance / falloffRange));
         }
-        
+
         // Base accuracy with distance falloff
         var baseAccuracy = weaponUnit.baseAccuracy;
         var hitRatio = baseAccuracy * distanceFactor;
-        
+
         // Ensure minimum hit chance at close range
         if (distance < distanceOptimalValue * 2)
         {
             hitRatio = Math.Max(hitRatio, 0.7); // At least 70% hit chance at close range
         }
-        
+
         return Math.Min(1.0, hitRatio);
     }
 }

@@ -1,0 +1,248 @@
+{
+    "Area": {
+        "Type": "sphere",
+        "Height": 200000,
+        "Radius": 1,
+        "Rotation": {
+            "W": 1,
+            "X": 0,
+            "Y": 0,
+            "Z": 0
+        },
+        "MinRadius": 100000
+    },
+    "Name": "spawn-basic-pirate",
+    "Tags": [],
+    "Type": null,
+    "Value": 0,
+    "Events": {
+        "OnLoad": [],
+        "OnSectorEnter": []
+    },
+    "Prefab": null,
+    "Script": null,
+    "Sector": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+    },
+    "Actions": [
+        {
+            "Area": {
+                "Type": "sphere",
+                "Height": 200000,
+                "Radius": 1,
+                "Rotation": {
+                    "W": 1,
+                    "X": 0,
+                    "Y": 0,
+                    "Z": 0
+                },
+                "MinRadius": 100000
+            },
+            "Name": null,
+            "Tags": [],
+            "Type": "spawn",
+            "Value": 0,
+            "Events": {
+                "OnLoad": [
+                    {
+                        "Tags": [
+                            "ore-1-2",
+                            "parts-1-2"
+                        ],
+                        "Type": "spawn-loot",
+                        "Value": 2000
+                    }
+                ],
+                "OnSectorEnter": []
+            },
+            "Prefab": "borgtacticalcube",
+            "Script": null,
+            "Sector": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "Actions": [],
+            "Message": null,
+            "Override": {
+                "ConstructName": null,
+                "PositionParentId": null
+            },
+            "Position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "TimeSpan": "00:00:00",
+            "FactionId": null,
+            "Properties": [],
+            "ConstructId": 0,
+            "MaxQuantity": 1,
+            "MinQuantity": 1,
+            "TerritoryId": null
+        },
+        {
+            "Area": {
+                "Type": "sphere",
+                "Height": 200000,
+                "Radius": 1,
+                "Rotation": {
+                    "W": 1,
+                    "X": 0,
+                    "Y": 0,
+                    "Z": 0
+                },
+                "MinRadius": 100000
+            },
+            "Name": null,
+            "Tags": [],
+            "Type": "expire-sector",
+            "Value": 0,
+            "Events": {
+                "OnLoad": [],
+                "OnSectorEnter": []
+            },
+            "Prefab": null,
+            "Script": null,
+            "Sector": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "Actions": [],
+            "Message": null,
+            "Override": {
+                "ConstructName": null,
+                "PositionParentId": null
+            },
+            "Position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "TimeSpan": "00:00:00",
+            "FactionId": null,
+            "Properties": [],
+            "ConstructId": 0,
+            "MaxQuantity": 1,
+            "MinQuantity": 1,
+            "TerritoryId": null
+        },
+        {
+            "Area": {
+                "Type": "sphere",
+                "Height": 200000,
+                "Radius": 1,
+                "Rotation": {
+                    "W": 1,
+                    "X": 0,
+                    "Y": 0,
+                    "Z": 0
+                },
+                "MinRadius": 100000
+            },
+            "Name": null,
+            "Tags": [
+                "poi"
+            ],
+            "Type": "for-each-handle-with-tag",
+            "Value": 0,
+            "Events": {
+                "OnLoad": [],
+                "OnSectorEnter": []
+            },
+            "Prefab": null,
+            "Script": null,
+            "Sector": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "Actions": [
+                {
+                    "Area": {
+                        "Type": "sphere",
+                        "Height": 200000,
+                        "Radius": 1,
+                        "Rotation": {
+                            "W": 1,
+                            "X": 0,
+                            "Y": 0,
+                            "Z": 0
+                        },
+                        "MinRadius": 100000
+                    },
+                    "Name": null,
+                    "Tags": [],
+                    "Type": "delete",
+                    "Value": 0,
+                    "Events": {
+                        "OnLoad": [],
+                        "OnSectorEnter": []
+                    },
+                    "Prefab": null,
+                    "Script": null,
+                    "Sector": {
+                        "x": 0,
+                        "y": 0,
+                        "z": 0
+                    },
+                    "Actions": [],
+                    "Message": null,
+                    "Override": {
+                        "ConstructName": null,
+                        "PositionParentId": null
+                    },
+                    "Position": {
+                        "x": 0,
+                        "y": 0,
+                        "z": 0
+                    },
+                    "TimeSpan": "00:00:00",
+                    "FactionId": null,
+                    "Properties": [],
+                    "ConstructId": 0,
+                    "MaxQuantity": 1,
+                    "MinQuantity": 1,
+                    "TerritoryId": null
+                }
+            ],
+            "Message": null,
+            "Override": {
+                "ConstructName": null,
+                "PositionParentId": null
+            },
+            "Position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "TimeSpan": "00:00:00",
+            "FactionId": null,
+            "Properties": [],
+            "ConstructId": 0,
+            "MaxQuantity": 1,
+            "MinQuantity": 1,
+            "TerritoryId": null
+        }
+    ],
+    "Message": null,
+    "Override": {
+        "ConstructName": null,
+        "PositionParentId": null
+    },
+    "Position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+    },
+    "TimeSpan": "00:00:00",
+    "FactionId": null,
+    "Properties": [],
+    "ConstructId": 0,
+    "MaxQuantity": 1,
+    "MinQuantity": 1,
+    "TerritoryId": null
+}
