@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -10,6 +10,8 @@ using Mod.DynamicEncounters.Features.Common.Data;
 using Mod.DynamicEncounters.Features.Common.Interfaces;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Interfaces;
 using Mod.DynamicEncounters.Features.Sector.Interfaces;
+using Mod.DynamicEncounters.Features.AlienWar.Data;
+using Mod.DynamicEncounters.Features.AlienWar.Interfaces;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Effects.Data;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Effects.Interfaces;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Interfaces;
@@ -31,6 +33,9 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
         990001, 990002, 990003, 990004, 990005,
         990006, 990007, 990008, 990009, 990010
     };
+
+    /// <summary>Max distance (meters) from alien core that bots will hunt player constructs; beyond this they return to core.</summary>
+    private const double AlienWarPlayerHuntMaxDistanceMeters = 400_000; // 400 km
     
     private bool _active = true;
     private IClusterClient _orleans;
@@ -42,6 +47,8 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
     private IConstructDamageService _constructDamageService;
     private IVoxelServiceClient _pveVoxelService;
     private ISafeZoneService _safeZoneService;
+    private IAlienWarStateService _alienWarStateService;
+    private IConstructHandleRepository _constructHandleRepository;
 
     public bool IsActive() => _active;
 
@@ -60,6 +67,8 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
         _areaScanService = provider.GetRequiredService<IAreaScanService>();
         _pveVoxelService = provider.GetRequiredService<IVoxelServiceClient>();
         _safeZoneService = provider.GetRequiredService<ISafeZoneService>();
+        _alienWarStateService = provider.GetRequiredService<IAlienWarStateService>();
+        _constructHandleRepository = provider.GetRequiredService<IConstructHandleRepository>();
 
         return Task.CompletedTask;
     }
@@ -88,6 +97,52 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
             }
 
             return;
+        }
+
+        ulong? alienWarCoreId = null;
+        if (context.Properties.TryGetValue("AlienWarTargetConstructId", out var awVal) && awVal != null)
+        {
+            if (awVal is ulong id)
+                alienWarCoreId = id;
+            else if (ulong.TryParse(awVal.ToString(), out var parsed))
+                alienWarCoreId = parsed;
+        }
+
+        if (alienWarCoreId.HasValue)
+        {
+            var phase = _alienWarStateService.GetPhase(alienWarCoreId.Value);
+            if (phase == AlienWarPhase.Guard)
+            {
+                var currentTarget = context.GetTargetConstructId();
+                if (currentTarget == alienWarCoreId.Value)
+                {
+                    context.SetAutoTargetConstructId(null);
+                    await PersistCurrentTargetIfAlienWarAsync(context, null);
+                    context.SetAutoTargetMovePosition(context.StartPosition ?? context.Sector);
+                }
+            }
+            else if (phase == AlienWarPhase.Attack)
+            {
+                var coreId = alienWarCoreId.Value;
+                var currentTarget = context.GetTargetConstructId();
+                // Leash: if this bot is hunting a player and that player is > 400 km from core, return to core
+                if (currentTarget.HasValue && currentTarget.Value != coreId)
+                {
+                    var coreTransform = await _constructService.GetConstructTransformAsync(coreId);
+                    var targetTransform = await _constructService.GetConstructTransformAsync(currentTarget.Value);
+                    if (coreTransform.ConstructExists && targetTransform.ConstructExists)
+                    {
+                        var distMeters = Math.Abs(coreTransform.Position.Dist(targetTransform.Position));
+                        if (distMeters > AlienWarPlayerHuntMaxDistanceMeters)
+                        {
+                            _logger.LogInformation("SelectTargetBehavior[{Construct}]: Player target {Target} beyond {Km} km from core, returning to core", constructId, currentTarget.Value, AlienWarPlayerHuntMaxDistanceMeters / 1000);
+                            await SetAlienWarTargetCoreAsync(context, coreId);
+                            return;
+                        }
+                    }
+                }
+                // Don't split core attacker vs others here; fall through to radar, then decide after we have contacts
+            }
         }
 
         var sw = new Stopwatch();
@@ -133,17 +188,53 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
             StatsRecorder.Record("NPC_Radar", sw.ElapsedMilliseconds);
         }
 
+        IList<ScanContact> contactsForSelection = radarContacts;
         context.UpdateRadarContacts(radarContacts);
+
+        // Alien-war Attack: all ships on core when no players in range; 1 on core + rest hunt when players within 400 km of core
+        if (alienWarCoreId.HasValue && _alienWarStateService.GetPhase(alienWarCoreId.Value) == AlienWarPhase.Attack)
+        {
+            var coreId = alienWarCoreId.Value;
+            var coreTransform = await _constructService.GetConstructTransformAsync(coreId);
+            var contactsInRange = coreTransform.ConstructExists
+                ? radarContacts.Where(c => Math.Abs(coreTransform.Position.Dist(c.Position)) <= AlienWarPlayerHuntMaxDistanceMeters).ToList()
+                : new List<ScanContact>();
+            if (contactsInRange.Count == 0)
+            {
+                _logger.LogDebug("SelectTargetBehavior[{Construct}]: No player contacts within {Km} km of core, all targeting core", constructId, AlienWarPlayerHuntMaxDistanceMeters / 1000);
+                await SetAlienWarTargetCoreAsync(context, coreId);
+                return;
+            }
+            var handles = (await _constructHandleRepository.FindAlienWarHandlesInSectorAsync(context.Sector, coreId)).ToList();
+            var coreAttackerConstructId = handles.Count > 0 ? handles.Min(h => h.ConstructId) : (ulong?)null;
+            var thisShipIsCoreAttacker = coreAttackerConstructId.HasValue && constructId == coreAttackerConstructId.Value;
+            if (thisShipIsCoreAttacker)
+            {
+                _logger.LogDebug("SelectTargetBehavior[{Construct}]: Core attacker, targeting core while {Count} players in range", constructId, contactsInRange.Count);
+                await SetAlienWarTargetCoreAsync(context, coreId);
+                return;
+            }
+            contactsForSelection = contactsInRange;
+            context.UpdateRadarContacts(contactsInRange);
+        }
 
         if (!context.HasAnyRadarContact())
         {
-            _logger.LogDebug("SelectTargetBehavior[{Construct}]: No radar contacts found, clearing target", constructId);
-            context.SetAutoTargetMovePosition(context.StartPosition ?? context.Sector);
-            context.SetAutoTargetConstructId(null);
+            _logger.LogDebug("SelectTargetBehavior[{Construct}]: No radar contacts found", constructId);
+            if (alienWarCoreId.HasValue && _alienWarStateService.GetPhase(alienWarCoreId.Value) == AlienWarPhase.Attack)
+            {
+                await SetAlienWarTargetCoreAsync(context, alienWarCoreId.Value);
+            }
+            else
+            {
+                context.SetAutoTargetMovePosition(context.StartPosition ?? context.Sector);
+                context.SetAutoTargetConstructId(null);
+                await PersistCurrentTargetIfAlienWarAsync(context, null);
+            }
             return;
         }
 
-        _logger.LogDebug("SelectTargetBehavior[{Construct}]: Found {ContactCount} radar contacts", constructId, radarContacts.Count);
+        _logger.LogDebug("SelectTargetBehavior[{Construct}]: Found {ContactCount} radar contacts", constructId, context.Contacts.Count);
 
         context.RefreshIdleSince();
 
@@ -153,7 +244,7 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
             new ISelectRadarTargetEffect.Params
             {
                 DecisionTimeSeconds = prefab.DefinitionItem.TargetDecisionTimeSeconds,
-                Contacts = radarContacts,
+                Contacts = contactsForSelection,
                 Context = context
             }
         );
@@ -179,6 +270,7 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
             constructId, targetId, selectedTarget.Distance, selectedTarget.Distance / DistanceHelpers.OneSuInMeters);
 
         context.SetAutoTargetConstructId(targetId);
+        await PersistCurrentTargetIfAlienWarAsync(context, targetId);
 
         var targetDamage = await _constructDamageService.GetConstructDamage(targetId);
         context.SetTargetDamageData(targetId, targetDamage);
@@ -249,6 +341,38 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
             {
                 _logger.LogError(e, "Failed to Takeover Ship");
             }
+        }
+    }
+
+    private async Task SetAlienWarTargetCoreAsync(BehaviorContext context, ulong coreId)
+    {
+        if (!await _constructService.Exists(coreId))
+            return;
+        context.SetAutoTargetConstructId(coreId);
+        await PersistCurrentTargetIfAlienWarAsync(context, coreId);
+        var coreTargetDamage = await _constructDamageService.GetConstructDamage(coreId);
+        context.SetTargetDamageData(coreId, coreTargetDamage);
+        var coreOutcome = await CalculateTargetMovePosition(context);
+        if (coreOutcome.Valid)
+        {
+            context.SetAutoTargetMovePosition(coreOutcome.TargetMovePosition);
+            var coreTargetVel = await _constructService.GetConstructVelocities(coreId);
+            context.SetTargetLinearVelocity(coreTargetVel.Linear);
+        }
+        if (context.ActiveSectorExpirationSeconds.HasValue)
+            await _sectorPoolManager.SetExpirationFromNow(context.Sector, context.ActiveSectorExpirationSeconds.Value);
+    }
+
+    private async Task PersistCurrentTargetIfAlienWarAsync(BehaviorContext context, ulong? targetConstructId)
+    {
+        if (!context.Properties.TryGetValue("AlienWarTargetConstructId", out var _)) return;
+        try
+        {
+            await _constructHandleRepository.UpdateCurrentTargetConstructIdAsync(context.ConstructId, targetConstructId);
+        }
+        catch (Exception e)
+        {
+            _logger.LogWarning(e, "SelectTargetBehavior[{Construct}]: Failed to persist current target for status API", constructId);
         }
     }
 

@@ -38,6 +38,7 @@ public class TaskQueueWorker : BackgroundService
             var provider = ModBase.ServiceProvider;
             var taskQueueService = provider.GetRequiredService<ITaskQueueService>();
 
+            await taskQueueService.ResumeAlienWarEventsIfNeededAsync();
             await taskQueueService.ProcessQueueMessages(stoppingToken);
         }
         catch (Exception e)

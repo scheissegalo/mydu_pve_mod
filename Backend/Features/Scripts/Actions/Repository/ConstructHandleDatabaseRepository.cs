@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -81,6 +81,23 @@ public class ConstructHandleDatabaseRepository(IServiceProvider provider) : ICon
         }
 
         return MapToModel(result[0]);
+    }
+
+    public async Task UpdateCurrentTargetConstructIdAsync(ulong constructId, ulong? targetConstructId)
+    {
+        var handle = await FindByConstructIdAsync(constructId);
+        if (handle == null) return;
+        if (handle.JsonProperties.Context == null)
+            handle.JsonProperties.Context = new Dictionary<string, object>();
+        if (targetConstructId.HasValue)
+            handle.JsonProperties.Context["CurrentTargetConstructId"] = targetConstructId.Value;
+        else
+            handle.JsonProperties.Context.Remove("CurrentTargetConstructId");
+        using var db = _factory.Create();
+        db.Open();
+        await db.ExecuteAsync(
+            $"UPDATE public.{NpcConstructHandleTable} SET json_properties = @json_properties::jsonb WHERE construct_id = @construct_id AND deleted_at IS NULL",
+            new { json_properties = JsonConvert.SerializeObject(handle.JsonProperties), construct_id = (long)constructId });
     }
 
     public async Task<ConstructHandleItem?> FindByConstructIdAsync(ulong constructId)
@@ -239,6 +256,18 @@ public class ConstructHandleDatabaseRepository(IServiceProvider provider) : ICon
         )).ToList();
 
         return result.Select(MapToModel);
+    }
+
+    public async Task<IEnumerable<ConstructHandleItem>> FindAlienWarHandlesInSectorAsync(Vec3 sector, ulong alienWarCoreConstructId)
+    {
+        var allAlienWar = await FindTagInSectorAsync(sector, "alienwar");
+        var coreIdStr = alienWarCoreConstructId.ToString();
+        return allAlienWar.Where(h =>
+        {
+            if (h.JsonProperties?.Context == null) return false;
+            return h.JsonProperties.Context.TryGetValue("AlienWarTargetConstructId", out var val) &&
+                   string.Equals(val?.ToString(), coreIdStr, StringComparison.Ordinal);
+        });
     }
 
     public async Task<IEnumerable<ConstructHandleItem>> FindInSectorAsync(Vec3 sector)

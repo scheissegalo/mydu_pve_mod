@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -8,6 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mod.DynamicEncounters.Common.Data;
 using Mod.DynamicEncounters.Common.Interfaces;
+using Mod.DynamicEncounters.Features.AlienWar.Data;
+using Mod.DynamicEncounters.Features.AlienWar.Interfaces;
 using Mod.DynamicEncounters.Features.Common.Data;
 using Mod.DynamicEncounters.Features.Common.Interfaces;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Interfaces;
@@ -43,6 +45,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
     private IConstructElementsService _constructElementsService;
     private IVoxelServiceClient _pveVoxelService;
     private IScenegraph _sceneGraph;
+    private IAlienWarStateService _alienWarStateService;
 
     public bool IsActive() => _active;
 
@@ -58,6 +61,7 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         _constructService = provider.GetRequiredService<IConstructService>();
         _pveVoxelService = provider.GetRequiredService<IVoxelServiceClient>();
         _sceneGraph = provider.GetRequiredService<IScenegraph>();
+        _alienWarStateService = provider.GetRequiredService<IAlienWarStateService>();
 
         context.Properties.TryAdd("CORE_ID", _coreUnitElementId);
 
@@ -100,10 +104,22 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
             return; // No target selected yet
         }
 
-        // Never attack excluded constructs (alien cores)
+        // Never attack excluded constructs (alien cores), except during Alien War Attack phase
         if (ExcludedConstructIds.Contains(targetConstructId.Value))
         {
-            return; // Skip excluded constructs
+            ulong? alienWarCoreId = null;
+            if (context.Properties.TryGetValue("AlienWarTargetConstructId", out var awVal) && awVal != null)
+            {
+                if (awVal is ulong id)
+                    alienWarCoreId = id;
+                else if (ulong.TryParse(awVal?.ToString(), out var parsed))
+                    alienWarCoreId = parsed;
+            }
+            var allowAlienWarTarget = alienWarCoreId.HasValue &&
+                targetConstructId.Value == alienWarCoreId.Value &&
+                _alienWarStateService.GetPhase(alienWarCoreId.Value) == AlienWarPhase.Attack;
+            if (!allowAlienWarTarget)
+                return; // Skip excluded constructs
         }
 
         var provider = context.Provider;
@@ -318,12 +334,8 @@ public class AggressiveBehavior(ulong constructId, IPrefab prefab) : IConstructB
         if (shootPointOutcome.Success)
         {
             context.HitPosition = shootPointOutcome.LocalPosition;
-            _logger.LogError("Hit Pos: {Pos}", context.HitPosition);
         }
-        else
-        {
-            context.HitPosition = random.RandomDirectionVec3() * context.ConstructSize * 2;
-        }
+        // When voxel fails (e.g. alien core not cached), keep the caller's HitPosition (from target size) so we still hit the target
 
         SetShootTotalDeltaTime(context.BehaviorContext, 0);
 

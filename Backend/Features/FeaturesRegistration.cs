@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using Microsoft.Extensions.DependencyInjection;
 using Mod.DynamicEncounters.Common.Interfaces;
 using Mod.DynamicEncounters.Common.Services;
 using Mod.DynamicEncounters.Database.Interfaces;
 using Mod.DynamicEncounters.Database.Services;
+using Mod.DynamicEncounters.Features.AlienWar;
 using Mod.DynamicEncounters.Features.Commands;
 using Mod.DynamicEncounters.Features.Common.Interfaces;
 using Mod.DynamicEncounters.Features.Common.Repository;
@@ -70,6 +71,7 @@ public static class FeaturesRegistration
         services.RegisterSectorGeneration();
         services.RegisterSpawnerScripts();
         services.RegisterTaskQueue();
+        services.RegisterAlienWar();
         services.RegisterEvents();
         services.RegisterNqServices();
         services.RegisterLootSystem();
