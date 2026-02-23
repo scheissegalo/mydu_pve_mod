@@ -180,6 +180,22 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
                 return;
             }
 
+            var existingState = stateService.GetState(data.CoreConstructId);
+            if (existingState?.Phase == AlienWarPhase.PostClaim && existingState.ClaimedAtUtc.HasValue)
+            {
+                if (DateTime.UtcNow >= existingState.ClaimedAtUtc.Value.AddMinutes(10))
+                {
+                    _logger.LogInformation("AlienWar: PostClaim 10 min elapsed for core {CoreId}, ending event", data.CoreConstructId);
+                    await DespawnAlienWarHandlesAndEndEvent(constructHandleRepo, orleans, data.Sector, data.CoreConstructId, stateService, eventRepo);
+                    await _repository.TagCompleted(message.Id);
+                    return;
+                }
+                var nextPostClaimCheck = existingState.ClaimedAtUtc.Value.AddMinutes(10);
+                await EnqueueAlienWarCheck(data, nextPostClaimCheck);
+                await _repository.TagCompleted(message.Id);
+                return;
+            }
+
             var shieldStatus = await shieldService.GetShieldStatusAsync(data.CoreConstructId, data.CooldownSecondsOverride);
             if (shieldStatus == null)
             {
@@ -187,14 +203,16 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
                 return;
             }
 
-            var phase = shieldStatus.IsInLockdown ? AlienWarPhase.Guard : AlienWarPhase.Attack;
+            var phase = (shieldStatus.IsInLockdown || shieldStatus.IsInImmunity) ? AlienWarPhase.Guard : AlienWarPhase.Attack;
+            var stateBeforeSet = stateService.GetState(data.CoreConstructId);
             stateService.SetState(data.CoreConstructId, new AlienWarEventState
             {
                 CoreConstructId = data.CoreConstructId,
                 Sector = data.Sector,
                 ScriptName = data.ScriptName,
                 Phase = phase,
-                LockdownEndAtUtc = shieldStatus.LockdownExitAtUtc
+                LockdownEndAtUtc = shieldStatus.LockdownExitAtUtc,
+                ClaimedAtUtc = stateBeforeSet?.ClaimedAtUtc
             });
 
             var handles = (await constructHandleRepo.FindAlienWarHandlesInSectorAsync(data.Sector, data.CoreConstructId)).ToList();
@@ -226,7 +244,6 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
                         _logger.LogInformation("AlienWar: Core {CoreId} destroyed by bots, claiming and repairing", data.CoreConstructId);
                         var botPlayerId = aliveHandles[0].OriginalOwnerPlayerId;
                         var constructGrain = orleans.GetConstructGrain(data.CoreConstructId);
-                        // Pass new owner as first arg (like AkimboAdminMod takeover); passing 0 can be treated as disown/destroy.
                         await constructGrain.ConstructSetOwner(botPlayerId, new ConstructOwnerSet { ownerId = new EntityId { playerId = botPlayerId } }, doKeyCheck: false);
 
                         var elementsGrain = orleans.GetConstructElementsGrain(data.CoreConstructId);
@@ -243,7 +260,17 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
                             });
                         }
 
-                        await DespawnAlienWarHandlesAndEndEvent(constructHandleRepo, orleans, data.Sector, data.CoreConstructId, stateService, eventRepo);
+                        stateService.SetState(data.CoreConstructId, new AlienWarEventState
+                        {
+                            CoreConstructId = data.CoreConstructId,
+                            Sector = data.Sector,
+                            ScriptName = data.ScriptName,
+                            Phase = AlienWarPhase.PostClaim,
+                            LockdownEndAtUtc = null,
+                            ClaimedAtUtc = DateTime.UtcNow
+                        });
+                        var nextPostClaimCheck = DateTime.UtcNow.AddMinutes(10);
+                        await EnqueueAlienWarCheck(data, nextPostClaimCheck);
                         await _repository.TagCompleted(message.Id);
                         return;
                     }

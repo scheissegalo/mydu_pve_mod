@@ -101,6 +101,10 @@
     <EmbeddedResource Include="Resources\Simple_POI.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </EmbeddedResource>
+    <Content Remove="Resources\Warp_Signature.json" />
+    <EmbeddedResource Include="Resources\Warp_Signature.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </EmbeddedResource>
     <EmbeddedResource Remove="Mod.DynamicEncounters.Tests\**" />
     <Content Remove="Mod.DynamicEncounters.Tests\**" />
   </ItemGroup>

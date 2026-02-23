@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -39,12 +39,15 @@ public class StarterContentController(IServiceProvider provider) : Controller
 
         const string simplePoiFileName = "Simple_POI.json";
         const string basicPirateFileName = "Basic_Pirate.json";
+        const string warpSignatureFileName = "Warp_Signature.json";
 
         var poiContents = ResourceLoader.GetContents($"Mod.DynamicEncounters.Resources.{simplePoiFileName}");
         var basicPirateContents = ResourceLoader.GetContents($"Mod.DynamicEncounters.Resources.{basicPirateFileName}");
-        
+        var warpSignatureContents = ResourceLoader.GetContents($"Mod.DynamicEncounters.Resources.{warpSignatureFileName}");
+
         var simplePoiDestinationPath = Path.Combine(pveDirectoryPath, simplePoiFileName);
         var basicPirateDestinationPath = Path.Combine(pveDirectoryPath, basicPirateFileName);
+        var warpSignatureDestinationPath = Path.Combine(pveDirectoryPath, warpSignatureFileName);
 
         if (!System.IO.File.Exists(simplePoiDestinationPath))
         {
@@ -56,6 +59,12 @@ public class StarterContentController(IServiceProvider provider) : Controller
         {
             await using var basicPirateSw = System.IO.File.CreateText(basicPirateDestinationPath);
             await basicPirateSw.WriteAsync(basicPirateContents);
+        }
+
+        if (!System.IO.File.Exists(warpSignatureDestinationPath))
+        {
+            await using var warpSignatureSw = System.IO.File.CreateText(warpSignatureDestinationPath);
+            await warpSignatureSw.WriteAsync(warpSignatureContents);
         }
 
         var prefabItemRepository = provider.GetRequiredService<IPrefabItemRepository>();

@@ -15,6 +15,7 @@ using Mod.DynamicEncounters.Features.AlienWar.Interfaces;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Effects.Data;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Effects.Interfaces;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Interfaces;
+using Mod.DynamicEncounters.Features.Scripts.Actions.Data;
 using Mod.DynamicEncounters.Features.Spawner.Data;
 using Mod.DynamicEncounters.Features.Spawner.Extensions;
 using Mod.DynamicEncounters.Features.VoxelService.Interfaces;
@@ -34,8 +35,10 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
         990006, 990007, 990008, 990009, 990010
     };
 
-    /// <summary>Max distance (meters) from alien core that bots will hunt player constructs; beyond this they return to core.</summary>
-    private const double AlienWarPlayerHuntMaxDistanceMeters = 400_000; // 400 km
+    /// <summary>Attack phase: 2 SU max from core (stay close, shoot players that get close).</summary>
+    private static readonly double AlienWarAttackMaxDistanceMeters = 2 * DistanceHelpers.OneSuInMeters;
+    /// <summary>Guard/PostClaim phase: 10 SU max from core.</summary>
+    private static readonly double AlienWarGuardMaxDistanceMeters = 10 * DistanceHelpers.OneSuInMeters;
     
     private bool _active = true;
     private IClusterClient _orleans;
@@ -111,7 +114,8 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
         if (alienWarCoreId.HasValue)
         {
             var phase = _alienWarStateService.GetPhase(alienWarCoreId.Value);
-            if (phase == AlienWarPhase.Guard)
+            var maxDist = phase == AlienWarPhase.Attack ? AlienWarAttackMaxDistanceMeters : AlienWarGuardMaxDistanceMeters;
+            if (phase == AlienWarPhase.Guard || phase == AlienWarPhase.PostClaim)
             {
                 var currentTarget = context.GetTargetConstructId();
                 if (currentTarget == alienWarCoreId.Value)
@@ -120,12 +124,30 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
                     await PersistCurrentTargetIfAlienWarAsync(context, null);
                     context.SetAutoTargetMovePosition(context.StartPosition ?? context.Sector);
                 }
+                // Leash: if hunting a player and that player is > 10 SU from core, return to core / pick another
+                else if (currentTarget.HasValue)
+                {
+                    var coreTransform = await _constructService.GetConstructTransformAsync(alienWarCoreId.Value);
+                    var targetTransform = await _constructService.GetConstructTransformAsync(currentTarget.Value);
+                    if (coreTransform.ConstructExists && targetTransform.ConstructExists)
+                    {
+                        var distMeters = Math.Abs(coreTransform.Position.Dist(targetTransform.Position));
+                        if (distMeters > maxDist)
+                        {
+                            _logger.LogInformation("SelectTargetBehavior[{Construct}]: Player target {Target} beyond {Su} SU from core (Guard), returning", constructId, currentTarget.Value, maxDist / DistanceHelpers.OneSuInMeters);
+                            context.SetAutoTargetConstructId(null);
+                            await PersistCurrentTargetIfAlienWarAsync(context, null);
+                            context.SetAutoTargetMovePosition(context.StartPosition ?? context.Sector);
+                            return;
+                        }
+                    }
+                }
             }
             else if (phase == AlienWarPhase.Attack)
             {
                 var coreId = alienWarCoreId.Value;
                 var currentTarget = context.GetTargetConstructId();
-                // Leash: if this bot is hunting a player and that player is > 400 km from core, return to core
+                // Leash: if hunting a player and that player is > 2 SU from core, return to core
                 if (currentTarget.HasValue && currentTarget.Value != coreId)
                 {
                     var coreTransform = await _constructService.GetConstructTransformAsync(coreId);
@@ -133,15 +155,14 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
                     if (coreTransform.ConstructExists && targetTransform.ConstructExists)
                     {
                         var distMeters = Math.Abs(coreTransform.Position.Dist(targetTransform.Position));
-                        if (distMeters > AlienWarPlayerHuntMaxDistanceMeters)
+                        if (distMeters > maxDist)
                         {
-                            _logger.LogInformation("SelectTargetBehavior[{Construct}]: Player target {Target} beyond {Km} km from core, returning to core", constructId, currentTarget.Value, AlienWarPlayerHuntMaxDistanceMeters / 1000);
+                            _logger.LogInformation("SelectTargetBehavior[{Construct}]: Player target {Target} beyond {Su} SU from core (Attack), returning to core", constructId, currentTarget.Value, maxDist / DistanceHelpers.OneSuInMeters);
                             await SetAlienWarTargetCoreAsync(context, coreId);
                             return;
                         }
                     }
                 }
-                // Don't split core attacker vs others here; fall through to radar, then decide after we have contacts
             }
         }
 
@@ -191,22 +212,46 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
         IList<ScanContact> contactsForSelection = radarContacts;
         context.UpdateRadarContacts(radarContacts);
 
-        // Alien-war Attack: all ships on core when no players in range; 1 on core + rest hunt when players within 400 km of core
+        if (alienWarCoreId.HasValue)
+        {
+            var phase = _alienWarStateService.GetPhase(alienWarCoreId.Value);
+            if (phase == AlienWarPhase.Guard || phase == AlienWarPhase.PostClaim)
+            {
+                var coreTransform = await _constructService.GetConstructTransformAsync(alienWarCoreId.Value);
+                if (coreTransform.ConstructExists)
+                {
+                    var guardMaxDist = AlienWarGuardMaxDistanceMeters;
+                    contactsForSelection = radarContacts
+                        .Where(c => Math.Abs(coreTransform.Position.Dist(c.Position)) <= guardMaxDist)
+                        .ToList();
+                    context.UpdateRadarContacts(contactsForSelection);
+                }
+            }
+        }
+
+        // Alien-war Attack: all ships on core when no players in range; 1 on core + rest hunt when players within 2 SU of core
         if (alienWarCoreId.HasValue && _alienWarStateService.GetPhase(alienWarCoreId.Value) == AlienWarPhase.Attack)
         {
             var coreId = alienWarCoreId.Value;
             var coreTransform = await _constructService.GetConstructTransformAsync(coreId);
+            var attackMaxDist = AlienWarAttackMaxDistanceMeters;
             var contactsInRange = coreTransform.ConstructExists
-                ? radarContacts.Where(c => Math.Abs(coreTransform.Position.Dist(c.Position)) <= AlienWarPlayerHuntMaxDistanceMeters).ToList()
+                ? radarContacts.Where(c => Math.Abs(coreTransform.Position.Dist(c.Position)) <= attackMaxDist).ToList()
                 : new List<ScanContact>();
             if (contactsInRange.Count == 0)
             {
-                _logger.LogDebug("SelectTargetBehavior[{Construct}]: No player contacts within {Km} km of core, all targeting core", constructId, AlienWarPlayerHuntMaxDistanceMeters / 1000);
+                _logger.LogDebug("SelectTargetBehavior[{Construct}]: No player contacts within 2 SU of core, all targeting core", constructId);
                 await SetAlienWarTargetCoreAsync(context, coreId);
                 return;
             }
             var handles = (await _constructHandleRepository.FindAlienWarHandlesInSectorAsync(context.Sector, coreId)).ToList();
-            var coreAttackerConstructId = handles.Count > 0 ? handles.Min(h => h.ConstructId) : (ulong?)null;
+            var aliveHandles = new List<ConstructHandleItem>();
+            foreach (var h in handles)
+            {
+                if (await _constructService.ExistsAndNotDeleted(h.ConstructId))
+                    aliveHandles.Add(h);
+            }
+            var coreAttackerConstructId = aliveHandles.Count > 0 ? aliveHandles.Min(h => h.ConstructId) : (ulong?)null;
             var thisShipIsCoreAttacker = coreAttackerConstructId.HasValue && constructId == coreAttackerConstructId.Value;
             if (thisShipIsCoreAttacker)
             {
@@ -239,15 +284,38 @@ public class SelectTargetBehavior(ulong constructId, IPrefab prefab) : IConstruc
         context.RefreshIdleSince();
 
         var selectTargetEffect = context.Effects.GetOrNull<ISelectRadarTargetEffect>();
-
-        var selectedTarget = selectTargetEffect?.GetTarget(
-            new ISelectRadarTargetEffect.Params
+        ScanContact? selectedTarget;
+        if (alienWarCoreId.HasValue && contactsForSelection.Count > 1)
+        {
+            var phase = _alienWarStateService.GetPhase(alienWarCoreId.Value);
+            if ((phase == AlienWarPhase.Attack || phase == AlienWarPhase.Guard || phase == AlienWarPhase.PostClaim))
             {
-                DecisionTimeSeconds = prefab.DefinitionItem.TargetDecisionTimeSeconds,
-                Contacts = contactsForSelection,
-                Context = context
+                var idx = (int)(constructId % (ulong)contactsForSelection.Count);
+                selectedTarget = contactsForSelection[idx];
             }
-        );
+            else
+            {
+                selectedTarget = selectTargetEffect?.GetTarget(
+                    new ISelectRadarTargetEffect.Params
+                    {
+                        DecisionTimeSeconds = prefab.DefinitionItem.TargetDecisionTimeSeconds,
+                        Contacts = contactsForSelection,
+                        Context = context
+                    }
+                );
+            }
+        }
+        else
+        {
+            selectedTarget = selectTargetEffect?.GetTarget(
+                new ISelectRadarTargetEffect.Params
+                {
+                    DecisionTimeSeconds = prefab.DefinitionItem.TargetDecisionTimeSeconds,
+                    Contacts = contactsForSelection,
+                    Context = context
+                }
+            );
+        }
 
         if (selectedTarget == null)
         {

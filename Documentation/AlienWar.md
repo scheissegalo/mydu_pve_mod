@@ -1,6 +1,8 @@
 # Alien War Event API
 
-The Alien War feature lets you start an event at an alien core construct. Spawned enemies will attack the core (shield or hull), switch to guard mode during shield lockdown, and the event ends when either all spawns are destroyed (players win) or the core is destroyed. When the bots destroy the core, the mod **claims** the core (changes owner to the bot player) and **repairs** all elements (including the shield) to full (`hitpointsRatio` = 1.0), then despawns the bots and ends the event.
+The Alien War feature lets you start an event at an alien core construct. Spawned enemies attack the core (shield or hull), switch to **Guard** during shield lockdown, and the event ends when all spawns are destroyed (players win) or the core is destroyed. When the bots destroy the core, the mod **claims** and **repairs** it, then guards for 10 minutes before ending.
+
+**Phase flow:** Shield down → **Lockdown** (Guard phase, bots chase players up to 10 SU from core). After `lockdownEnd` passes → **Attack** (bots stay within 2 SU, one always on core). Core destroyed → **claim + repair** → **PostClaim** (10 SU guard for 10 min) → event ends. `lockdownEnd` = 0 or in the past = not in lockdown. `immunityEnd` (future only) = core in immunity → treated as Guard.
 
 ## Endpoints
 
@@ -73,10 +75,10 @@ Returns the current phase, in-memory state, and **live shield status** (same dat
 }
 ```
 
-- `phase`: In-memory phase the bots use (`Attack`, `Guard`, or `Ended`).
+- `phase`: In-memory phase (`Attack`, `Guard`, `PostClaim`, or `Ended`).
 - `lockdownEndAtUtc`: Value last written by the check task (may be null if no lockdown was seen yet).
-- `bots`: **aliveCount** = number of alien-war bots still in sector; **targetingCore** = bots with target = core (from actual target data); **targetingPlayers** = bots with target = a player construct (from actual target data); **targetingPlayerConstructIds** = distinct construct IDs currently targeted. Counts are from actual target data only. In Attack phase: when no players are within 400 km of the core, all bots target the core; when players are in range, one bot (min ConstructId) targets the core and the rest target players (with a 400 km leash from the core).
-- `shield`: Live read from DB. **shieldEnabled**, **lockdownExitAtUtc**, **isInLockdown** as before. **shieldHealthPercent** = 0–100% from `(1 - totalDamage/shieldMaxHp)`, using `hitHistory.totalDamage` and `shieldMaxHp` (null if not available). If shield could not be read, `shield` is `{ "error": "..." }`.
+- `bots`: **aliveCount**, **targetingCore**, **targetingPlayers**, **targetingPlayerConstructIds**. In Attack: no players within 2 SU → all target core; players in range → one bot (lowest ConstructId among alive) targets core, rest hunt players (2 SU leash). Bots are spread across players (constructId % count). In Guard/PostClaim: 10 SU leash.
+- `shield`: **shieldEnabled**, **lockdownExitAtUtc**, **lockdownEndUnixMs**, **isInLockdown**, **immunityEndAtUtc**, **isInImmunity** (immunity only when future), **lockdownEndsInSeconds**, **lockdownEndedAgoSeconds**, **shieldHealthPercent**. Shield HP comes from ConstructInfo (Redis) when the construct is loaded; otherwise from DB fallback. `lockdownEnd` = 0 or past = not in lockdown.
 
 **Errors:** `404` if no active event for this construct.
 
@@ -106,7 +108,7 @@ Repairs all elements on the construct by setting `hitpointsRatio` = 1.0 for each
 
 **Errors:** `404` if construct not found or deleted.
 
-**Note:** When the core is destroyed by the bots, the next `alienwar-check` run will: (1) set the core’s owner to the bot player (`ConstructSetOwner`), (2) repair every element on the construct to full HP (`UpdateElementProperty` with `hitpointsRatio` = 1.0 for each element), then (3) despawn all alien-war bots and end the event. The core remains in the world as a bot-owned, fully repaired construct.
+**Note:** When the core is destroyed by the bots, the next `alienwar-check` run will: (1) claim the core to the bot player, (2) repair all elements to full HP, then (3) set phase to **PostClaim** and guard for 10 minutes at 10 SU from core, then (4) despawn all bots and end the event.
 
 The sector force-expire endpoint `POST /sector/instance/expire/force/all` does **not** affect Alien War events. It only sets `force_expire_at = NOW()` on all rows in `mod_sector_instance`, so sector instances expire; Alien War state lives in `mod_alien_war_event` and is independent. Use `POST /alienwar/cancel/{constructId}` to cancel a specific event.
 
@@ -230,7 +232,7 @@ Example script name: `alienwar-spawn-hard-pirate`. Insert into `mod_script`:
 
 ## Testing: simulating lockdown ended
 
-The mod reads **lockdownEnd** from the **game database** (`element_property` on the shield element, same DB as the game). The value is **Unix time in milliseconds (UTC)**. We compare `DateTime.UtcNow < LockdownExitAtUtc` to decide Guard vs Attack, so everything is UTC and there is no timezone mix.
+**Shield HP and state:** The mod prefers **ConstructInfo** (Orleans / Redis) for alien cores: `baseShieldState.baseShieldHpRatio` (0–100%), `lockdownEnd`, `immunityEnd`, `isActive`. Current shield HP is stored in Redis, not Postgres. When ConstructInfo is unavailable (e.g. construct not loaded), the mod falls back to the database (`element_property` on the shield element). Note: `hitHistory` in the DB is a rolling 5‑minute window and should not be used for current HP; the ConstructInfo path is authoritative.
 
 To simulate "cooldown passed" so the phase switches to Attack:
 

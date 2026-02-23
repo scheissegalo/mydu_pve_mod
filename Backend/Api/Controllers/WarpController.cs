@@ -1,4 +1,4 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Mod.DynamicEncounters.Features.Warp.Data;
@@ -36,7 +36,10 @@ public class WarpController : Controller
 
         if (!outcome.Success)
         {
-            return BadRequest();
+            var message = outcome.Message ?? "Warp anchor creation failed";
+            if (outcome.Exception != null)
+                message += ": " + outcome.Exception.Message;
+            return BadRequest(message);
         }
 
         return Ok(

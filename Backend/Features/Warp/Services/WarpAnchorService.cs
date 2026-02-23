@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -145,6 +145,7 @@ public class WarpAnchorService(IServiceProvider provider) : IWarpAnchorService
         }
         catch (Exception e)
         {
+            _logger.LogError(e, "Failed to create warp anchor");
             return CreateWarpAnchorOutcome.Failed("Failed to create warp anchor", e);
         }
     }

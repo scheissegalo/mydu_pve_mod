@@ -210,6 +210,8 @@ public class AlienWarController : Controller
                     lockdownExitAtUtc = shieldStatus.LockdownExitAtUtc,
                     lockdownEndUnixMs = shieldStatus.LockdownEndUnixMs,
                     isInLockdown = shieldStatus.IsInLockdown,
+                    immunityEndAtUtc = shieldStatus.ImmunityEndAtUtc,
+                    isInImmunity = shieldStatus.IsInImmunity,
                     lockdownEndsInSeconds = shieldStatus.LockdownEndsInSeconds,
                     lockdownEndedAgoSeconds = shieldStatus.LockdownEndedAgoSeconds,
                     shieldHealthPercent = shieldStatus.ShieldHealthPercent
