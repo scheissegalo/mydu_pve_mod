@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Mod.DynamicEncounters.Features.Warp.Interfaces;
 using Mod.DynamicEncounters.Features.Warp.Services;
 
@@ -8,6 +8,7 @@ public static class WarpServicesRegistration
 {
     public static void RegisterWarpServices(this IServiceCollection services)
     {
+        services.AddSingleton<IWarpDestinationRefreshStore, WarpDestinationRefreshStore>();
         services.AddSingleton<IWarpAnchorService, WarpAnchorService>();
     }
 }

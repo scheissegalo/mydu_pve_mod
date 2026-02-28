@@ -47,9 +47,21 @@ public class WarpController : Controller
                 outcome.WarpAnchorConstructId.constructId,
                 outcome.WarpAnchorConstructName,
                 outcome.WarpAnchorPosition,
-                outcome.WarpAnchorPosition.Vec3ToPosition()
+                outcome.WarpAnchorPosition.Vec3ToPosition(),
+                outcome.Message
             )
         );
+    }
+
+    [HttpGet]
+    [Route("pending-refresh/{playerId:long}")]
+    public IActionResult GetPendingRefresh(ulong playerId)
+    {
+        var store = ModBase.ServiceProvider.GetRequiredService<Mod.DynamicEncounters.Features.Warp.Interfaces.IWarpDestinationRefreshStore>();
+        var script = store.GetAndClearPendingScript(playerId);
+        if (string.IsNullOrEmpty(script))
+            return NoContent();
+        return Content(script, "application/javascript");
     }
 
     [HttpPost]
@@ -81,11 +93,13 @@ public class WarpController : Controller
         public string ElementTypeName { get; set; } = "WarpDrive";
     }
 
-    public class WarpAnchorResponse(ulong constructId, string constructName, Vec3 position, string positionString)
+    public class WarpAnchorResponse(ulong constructId, string constructName, Vec3 position, string positionString, string message)
     {
         public ulong ConstructId { get; set; } = constructId;
         public string ConstructName { get; set; } = constructName;
         public Vec3 Position { get; set; } = position;
         public string PositionString { get; set; } = positionString;
+        /// <summary>Feedback message for the player (e.g. beacon at target vs created as far as possible due to 100 SU limit).</summary>
+        public string Message { get; set; } = message;
     }
 }

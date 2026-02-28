@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -32,5 +32,16 @@ public class WarpAnchorApiClient(IServiceProvider provider) : IWarpAnchorApiClie
 
         _logger.LogInformation("SetWarpEndCooldown Response: {StatusCode}: {ResponseString}",
             responseMessage.StatusCode, responseString);
+    }
+
+    public async Task<string?> GetPendingRefreshScriptAsync(ulong playerId)
+    {
+        var baseUrl = PveModBaseUrl.GetBaseUrl().TrimEnd('/');
+        var url = $"{baseUrl}/warp/pending-refresh/{playerId}";
+        using var client = _httpClientFactory.CreateClient();
+        var response = await client.GetAsync(new Uri(url));
+        if (!response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NoContent)
+            return null;
+        return await response.Content.ReadAsStringAsync();
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
@@ -86,6 +86,9 @@ public static class LoggingConfiguration
             loggerConfiguration.MinimumLevel.Override("Orleans.Runtime.Scheduler.OrleansTaskScheduler",
                 LogEventLevel.Warning);
         }
+
+        // Warp destination push: always show Info+ so we can see grain/HTTP steps and failures in Mod.log
+        loggerConfiguration.MinimumLevel.Override("Mod.DynamicEncounters.Features.Warp", LogEventLevel.Information);
 
         loggerConfiguration.Enrich.FromLogContext();
         var path1 = Environment.GetEnvironmentVariable("NQ_LOG_PATH") ?? log.path;

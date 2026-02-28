@@ -365,6 +365,15 @@ public class MyDuMod : IMod
                     _logger.LogInformation("LoadPlayerBoardApp: Injecting CSS and JS");
                     await _injection.InjectCss(playerId, Resources.NpcAppCss);
                     await _injection.InjectJs(playerId, Resources.NpcAppJs);
+
+                    var warpAnchorApiClient = new WarpAnchorApiClient(_provider);
+                    var refreshScript = await warpAnchorApiClient.GetPendingRefreshScriptAsync(playerId);
+                    if (!string.IsNullOrEmpty(refreshScript))
+                    {
+                        _logger.LogInformation("LoadPlayerBoardApp: Injecting pending warp destination refresh for player {PlayerId}", playerId);
+                        await _injection.InjectJs(playerId, refreshScript);
+                    }
+
                     _logger.LogInformation("LoadPlayerBoardApp: Completed successfully");
                 }
                 catch (Exception ex)

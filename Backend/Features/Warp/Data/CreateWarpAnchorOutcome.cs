@@ -16,14 +16,15 @@ public class CreateWarpAnchorOutcome
     public static CreateWarpAnchorOutcome WarpAnchorCreated(
         ConstructId constructId,
         string constructName,
-        Vec3 warpAnchorPosition
+        Vec3 warpAnchorPosition,
+        string message = "Warp anchor created"
     ) => new()
     {
         WarpAnchorConstructId = constructId,
         WarpAnchorConstructName = constructName,
         WarpAnchorPosition = warpAnchorPosition,
         Success = true,
-        Message = "Warp anchor created"
+        Message = message
     };
 
     public static CreateWarpAnchorOutcome Failed(string message, Exception exception)
