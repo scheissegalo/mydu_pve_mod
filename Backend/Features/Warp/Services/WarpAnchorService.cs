@@ -503,9 +503,16 @@ public class WarpAnchorService(IServiceProvider provider) : IWarpAnchorService
         }
 
         trait.TryGetPropertyValue("warpEndCooldown", out var warpEndCooldown, TimeSpan.FromSeconds(3).TotalMilliseconds);
+
+        // Trait stores cooldown in milliseconds. Cap at 300 seconds (game's usual max) so distance-based or wrong values don't yield huge cooldowns.
+        const double maxCooldownSeconds = 300;
+        var cooldownMs = warpEndCooldown;
+        if (cooldownMs > maxCooldownSeconds * 1000)
+            cooldownMs = maxCooldownSeconds * 1000;
+
+        var cooldownDate = DateTime.UtcNow + TimeSpan.FromMilliseconds(cooldownMs);
         
         var orleans = provider.GetOrleans();
-
         var constructElementsGrain = orleans.GetConstructElementsGrain(command.ConstructId);
         var coreUnits = await constructElementsGrain.GetElementsOfType<CoreUnit>();
 
@@ -514,8 +521,6 @@ public class WarpAnchorService(IServiceProvider provider) : IWarpAnchorService
             return SetWarpCooldownOutcome.InvalidConstruct();
         }
 
-        var cooldownDate = DateTime.UtcNow + TimeSpan.FromSeconds(warpEndCooldown);
-        
         await constructElementsGrain.UpdateElementProperty(new ElementPropertyUpdate
         {
             constructId = command.ConstructId,
