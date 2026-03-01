@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Backend;
@@ -214,6 +214,36 @@ public class ConstructService(IServiceProvider provider) : IConstructService
                 constructId = (long)constructId
             }
         );
+    }
+
+    public TimeSpan GetGcAbandonedConstructDeleteDelay()
+    {
+        var bank = provider.GetGameplayBank();
+        var gcConfig = bank.GetBaseObject<ConstructGCConfig>();
+        return TimeSpan.FromHours(gcConfig.abandonedConstructDeleteDelayHours);
+    }
+
+    public async Task<DateTime?> GetConstructDespawnTimeUtcAsync(ulong constructId)
+    {
+        var bank = provider.GetGameplayBank();
+        var gcConfig = bank.GetBaseObject<ConstructGCConfig>();
+        var deleteHours = gcConfig.abandonedConstructDeleteDelayHours;
+
+        using var db = _factory.Create();
+        db.Open();
+
+        var rows = await db.QueryAsync<AbandonedAtRow>(
+            "SELECT abandoned_at FROM public.construct WHERE id = @constructId AND abandoned_at IS NOT NULL",
+            new { constructId = (long)constructId });
+        var row = rows.FirstOrDefault();
+        if (row.abandoned_at == default)
+            return null;
+        return row.abandoned_at.AddHours(deleteHours);
+    }
+
+    private struct AbandonedAtRow
+    {
+        public DateTime abandoned_at { get; set; }
     }
 
     public async Task<bool> TryVentShieldsAsync(ulong constructId)

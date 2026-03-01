@@ -1,13 +1,15 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Mod.DynamicEncounters.Features.AlienWar.Interfaces;
 using Mod.DynamicEncounters.Features.Common.Interfaces;
 using Mod.DynamicEncounters.Features.Events.Data;
 using Mod.DynamicEncounters.Features.Events.Interfaces;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Data;
+using Mod.DynamicEncounters.Features.Scripts.Actions.Interfaces;
 using Mod.DynamicEncounters.Features.Spawner.Data;
 using Mod.DynamicEncounters.Helpers;
 
@@ -174,6 +176,38 @@ public static class BehaviorContextNotificationExtensions
         }
 
         logger.LogInformation("NPC Defeated by players: {Players}", string.Join(", ", eventArgs.Context.PlayerIds));
+
+        // Post wreck (name, coords, despawn time) to general chat for all player-destroyed NPCs (Alien War + encounters)
+        ulong? alienWarCoreId = null;
+        if (eventArgs.Context.Properties.TryGetValue("AlienWarTargetConstructId", out var awVal) && awVal != null)
+        {
+            if (awVal is ulong cid)
+                alienWarCoreId = cid;
+            else if (ulong.TryParse(awVal.ToString(), out var parsed))
+                alienWarCoreId = parsed;
+        }
+        try
+        {
+            var handleRepo = eventArgs.Context.Provider.GetRequiredService<IConstructHandleRepository>();
+            var wreckChatNotify = eventArgs.Context.Provider.GetRequiredService<IWreckChatNotificationService>();
+            var handle = await handleRepo.FindByConstructIdAsync(eventArgs.ConstructId);
+            var shipName = handle?.JsonProperties?.ConstructName;
+            var transform = await constructService.GetConstructTransformAsync(eventArgs.ConstructId);
+            if (transform.ConstructExists)
+            {
+                var p = transform.Position;
+                await wreckChatNotify.NotifyWreckDestroyedAsync(eventArgs.ConstructId, shipName, p.x, p.y, p.z);
+                if (alienWarCoreId.HasValue)
+                {
+                    var alienWarWreckNotify = eventArgs.Context.Provider.GetRequiredService<IAlienWarWreckNotificationService>();
+                    await alienWarWreckNotify.NotifyWreckIfAlienWarAsync(eventArgs.ConstructId, alienWarCoreId, shipName, p.x, p.y, p.z);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to post wreck notification or record Alien War wreck for construct {ConstructId}", eventArgs.ConstructId);
+        }
 
         var tasks = eventArgs.Context.PlayerIds.Select(id =>
             eventService.PublishAsync(

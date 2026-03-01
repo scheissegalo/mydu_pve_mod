@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Mod.DynamicEncounters.Common.Helpers;
 using Mod.DynamicEncounters.Features.AlienWar.Data;
 using Mod.DynamicEncounters.Features.AlienWar.Interfaces;
+using Mod.DynamicEncounters.Vector.Helpers;
 using Mod.DynamicEncounters.Features.Common.Interfaces;
 using Mod.DynamicEncounters.Features.Interfaces;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Data;
@@ -175,7 +176,7 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
             if (!await constructService.ExistsAndNotDeleted(data.CoreConstructId))
             {
                 _logger.LogInformation("AlienWar: Core construct {CoreId} no longer exists, ending event", data.CoreConstructId);
-                await DespawnAlienWarHandlesAndEndEvent(constructHandleRepo, orleans, data.Sector, data.CoreConstructId, stateService, eventRepo);
+                await SendAlienWarEventEndSummaryAndDespawnAsync(data, constructHandleRepo, constructService, shieldService, orleans, stateService, eventRepo, "CoreGone");
                 await _repository.TagCompleted(message.Id);
                 return;
             }
@@ -186,7 +187,9 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
                 if (DateTime.UtcNow >= existingState.ClaimedAtUtc.Value.AddMinutes(10))
                 {
                     _logger.LogInformation("AlienWar: PostClaim 10 min elapsed for core {CoreId}, ending event", data.CoreConstructId);
-                    await DespawnAlienWarHandlesAndEndEvent(constructHandleRepo, orleans, data.Sector, data.CoreConstructId, stateService, eventRepo);
+                    var constructServiceForSummary = provider.GetRequiredService<IConstructService>();
+                    var shieldServiceForSummary = provider.GetRequiredService<IAlienCoreShieldService>();
+                    await SendAlienWarEventEndSummaryAndDespawnAsync(data, constructHandleRepo, constructServiceForSummary, shieldServiceForSummary, orleans, stateService, eventRepo, "CoreDestroyed");
                     await _repository.TagCompleted(message.Id);
                     return;
                 }
@@ -226,6 +229,7 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
             if (aliveHandles.Count == 0)
             {
                 _logger.LogInformation("AlienWar: All spawns destroyed for core {CoreId}, ending event", data.CoreConstructId);
+                await SendAlienWarEventEndSummaryAsync(data, [], shieldService, "PlayersWin");
                 stateService.RemoveState(data.CoreConstructId);
                 await eventRepo.RemoveByCoreAsync(data.CoreConstructId);
                 await _repository.TagCompleted(message.Id);
@@ -295,15 +299,56 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
         }
     }
 
-    private static async Task DespawnAlienWarHandlesAndEndEvent(
-        IConstructHandleRepository constructHandleRepo,
-        IClusterClient orleans,
-        Vec3 sector,
-        ulong coreConstructId,
-        IAlienWarStateService stateService,
-        IAlienWarEventRepository eventRepo)
+    private async Task SendAlienWarEventEndSummaryAsync(
+        AlienWarCheckTaskData data,
+        IReadOnlyList<ConstructHandleItem> aliveHandles,
+        IAlienCoreShieldService shieldService,
+        string outcome)
     {
-        var handles = (await constructHandleRepo.FindAlienWarHandlesInSectorAsync(sector, coreConstructId)).ToList();
+        try
+        {
+            var wreckRepo = provider.GetRequiredService<IAlienWarWreckRepository>();
+            var chatService = provider.GetRequiredService<IGeneralChatService>();
+            var wrecks = await wreckRepo.FindByCoreAsync(data.CoreConstructId);
+            var shieldStatus = await shieldService.GetShieldStatusAsync(data.CoreConstructId, data.CooldownSecondsOverride);
+            var shieldPercent = shieldStatus?.ShieldHealthPercent;
+            var totalShips = aliveHandles.Count + wrecks.Count;
+            var shipNames = aliveHandles
+                .Select(h => h.JsonProperties?.ConstructName ?? $"Ship {h.ConstructId}")
+                .Concat(wrecks.Select(w => w.ShipName))
+                .ToList();
+            var shieldStr = shieldPercent.HasValue ? $"{shieldPercent.Value:F1}%" : "?";
+            var namesStr = shipNames.Count > 0 ? string.Join(", ", shipNames) : "none";
+            var msg = $"[Alien War] Event over (Core {data.CoreConstructId}). Outcome: {outcome}. Shield at end: {shieldStr}. Ships: {totalShips} ({namesStr}).";
+            await chatService.SendToGeneralAsync(msg);
+            if (wrecks.Count > 0)
+            {
+                var wreckLines = wrecks.Select(w =>
+                {
+                    var pos = new Vec3 { x = w.PositionX, y = w.PositionY, z = w.PositionZ };
+                    return $"{w.ShipName}: {pos.Vec3ToPosition(0, 4)}";
+                });
+                await chatService.SendToGeneralAsync("[Alien War] Wrecks: " + string.Join(" | ", wreckLines));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AlienWar: Failed to send event end summary to chat");
+        }
+    }
+
+    private async Task SendAlienWarEventEndSummaryAndDespawnAsync(
+        AlienWarCheckTaskData data,
+        IConstructHandleRepository constructHandleRepo,
+        IConstructService constructService,
+        IAlienCoreShieldService shieldService,
+        IClusterClient orleans,
+        IAlienWarStateService stateService,
+        IAlienWarEventRepository eventRepo,
+        string outcome)
+    {
+        var handles = (await constructHandleRepo.FindAlienWarHandlesInSectorAsync(data.Sector, data.CoreConstructId)).ToList();
+        await SendAlienWarEventEndSummaryAsync(data, handles, shieldService, outcome);
         var parentingGrain = orleans.GetConstructParentingGrain();
         foreach (var h in handles)
         {
@@ -318,8 +363,8 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
         }
 
         await constructHandleRepo.TagAsDeletedConstructHandledThatAreDeletedConstructs();
-        stateService.RemoveState(coreConstructId);
-        await eventRepo.RemoveByCoreAsync(coreConstructId);
+        stateService.RemoveState(data.CoreConstructId);
+        await eventRepo.RemoveByCoreAsync(data.CoreConstructId);
     }
 
     private static bool _alienWarResumeDone;
@@ -332,9 +377,18 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
         if (evt == null)
             return false;
         var constructHandleRepo = provider.GetRequiredService<IConstructHandleRepository>();
+        var constructService = provider.GetRequiredService<IConstructService>();
+        var shieldService = provider.GetRequiredService<IAlienCoreShieldService>();
         var orleans = provider.GetOrleans();
         var stateService = provider.GetRequiredService<IAlienWarStateService>();
-        await DespawnAlienWarHandlesAndEndEvent(constructHandleRepo, orleans, evt.Sector, evt.CoreConstructId, stateService, eventRepo);
+        var data = new AlienWarCheckTaskData
+        {
+            CoreConstructId = evt.CoreConstructId,
+            Sector = evt.Sector,
+            ScriptName = evt.ScriptName,
+            CooldownSecondsOverride = evt.CooldownSecondsOverride
+        };
+        await SendAlienWarEventEndSummaryAndDespawnAsync(data, constructHandleRepo, constructService, shieldService, orleans, stateService, eventRepo, "Cancelled");
         return true;
     }
 

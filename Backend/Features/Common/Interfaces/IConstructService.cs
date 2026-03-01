@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using Mod.DynamicEncounters.Features.Common.Data;
 using NQ;
@@ -16,6 +16,10 @@ public interface IConstructService
     Task DeleteAsync(ulong constructId);
     Task SoftDeleteAsync(ulong constructId);
     Task SetAutoDeleteFromNowAsync(ulong constructId, TimeSpan timeSpan);
+    /// <summary>Gets the server's GC abandoned-construct delete delay (e.g. 720 hours). Used when setting wreck despawn time.</summary>
+    TimeSpan GetGcAbandonedConstructDeleteDelay();
+    /// <summary>Gets when the construct will be despawned by GC (abandoned_at + deleteDelayHours). Returns null if abandoned_at is not set.</summary>
+    Task<DateTime?> GetConstructDespawnTimeUtcAsync(ulong constructId);
     Task<bool> TryVentShieldsAsync(ulong constructId);
     Task<bool> IsBeingControlled(ulong constructId);
     IConstructService NoCache();

@@ -110,6 +110,10 @@ Repairs all elements on the construct by setting `hitpointsRatio` = 1.0 for each
 
 **Note:** When the core is destroyed by the bots, the next `alienwar-check` run will: (1) claim the core to the bot player, (2) repair all elements to full HP, then (3) set phase to **PostClaim** and guard for 10 minutes at 10 SU from core, then (4) despawn all bots and end the event.
 
+**Event end notifications:** When an Alien War event ends, the mod posts a summary to **general chat** (SUPPORT channel): outcome (PlayersWin, CoreDestroyed, CoreGone, Cancelled), shield % at end, total ships spawned, and ship names. Wrecks are stored in `mod_alien_war_wreck` for the event summary.
+
+**Wreck notifications (all encounters):** When a player destroys any NPC (Alien War or encounter system), the mod posts to general chat: ship name, coordinates (`::pos{0,0,x,y,z}`), and despawn time. The despawn time is read from the construct's `abandoned_at` + GC config, or set to 3 hours if not yet configured. Example: `Wreck: Scout-1 at ::pos{0,0,13856555.4972,7386347.6686,-258425.0381} — Despawns at 2025-02-22 15:30 UTC (2.5h left)`.
+
 The sector force-expire endpoint `POST /sector/instance/expire/force/all` does **not** affect Alien War events. It only sets `force_expire_at = NOW()` on all rows in `mod_sector_instance`, so sector instances expire; Alien War state lives in `mod_alien_war_event` and is independent. Use `POST /alienwar/cancel/{constructId}` to cancel a specific event.
 
 ---

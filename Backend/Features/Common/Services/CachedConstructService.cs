@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using Mod.DynamicEncounters.Features.Common.Data;
 using Mod.DynamicEncounters.Features.Common.Interfaces;
@@ -79,6 +79,12 @@ public class CachedConstructService(
 
     public Task SetAutoDeleteFromNowAsync(ulong constructId, TimeSpan timeSpan)
         => service.SetAutoDeleteFromNowAsync(constructId, timeSpan);
+
+    public TimeSpan GetGcAbandonedConstructDeleteDelay()
+        => service.GetGcAbandonedConstructDeleteDelay();
+
+    public Task<DateTime?> GetConstructDespawnTimeUtcAsync(ulong constructId)
+        => service.GetConstructDespawnTimeUtcAsync(constructId);
 
     public Task<bool> TryVentShieldsAsync(ulong constructId)
         => service.TryVentShieldsAsync(constructId);

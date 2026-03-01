@@ -12,5 +12,7 @@ public static class AlienWarRegistration
         services.AddSingleton<IAlienCoreShieldService, AlienCoreShieldService>();
         services.AddSingleton<IAlienWarStateService, AlienWarStateService>();
         services.AddSingleton<IAlienWarEventRepository, AlienWarEventRepository>();
+        services.AddSingleton<IAlienWarWreckRepository, AlienWarWreckRepository>();
+        services.AddSingleton<IAlienWarWreckNotificationService, AlienWarWreckNotificationService>();
     }
 }
