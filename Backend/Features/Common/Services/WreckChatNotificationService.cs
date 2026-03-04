@@ -13,6 +13,8 @@ public class WreckChatNotificationService(IServiceProvider provider) : IWreckCha
 {
     /// <summary>Fallback when GC config is unavailable (e.g. in catch).</summary>
     private static readonly TimeSpan FallbackWreckLifetime = TimeSpan.FromHours(3);
+    /// <summary>Delay before announcing wreck so the killer can loot first.</summary>
+    private static readonly TimeSpan AnnouncementDelay = TimeSpan.FromMinutes(15);
 
     private readonly IConstructService _constructService = provider.GetRequiredService<IConstructService>();
     private readonly ILogger<WreckChatNotificationService> _logger = provider.GetRequiredService<ILoggerFactory>().CreateLogger<WreckChatNotificationService>();
@@ -45,14 +47,18 @@ public class WreckChatNotificationService(IServiceProvider provider) : IWreckCha
             : "Despawns ~3h";
         var message = $"Wreck: {name} at {posStr} — {despawnStr}";
 
-        try
+        _ = Task.Run(async () =>
         {
-            var chatService = provider.GetRequiredService<IGeneralChatService>();
-            await chatService.SendToGeneralAsync(message);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "WreckChatNotificationService: Failed to send wreck notification to general chat");
-        }
+            await Task.Delay(AnnouncementDelay);
+            try
+            {
+                var chatService = provider.GetRequiredService<IGeneralChatService>();
+                await chatService.SendToGeneralAsync(message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "WreckChatNotificationService: Failed to send wreck notification to general chat");
+            }
+        });
     }
 }
