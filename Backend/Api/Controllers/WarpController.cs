@@ -30,7 +30,10 @@ public class WarpController : Controller
                 FromPosition = request.FromPosition,
                 TargetPosition = request.TargetPosition,
                 ElementTypeName = request.ElementTypeName,
-                PlayerId = request.PlayerId
+                PlayerId = request.PlayerId,
+                Public = request.Public,
+                DespawnMinutes = request.DespawnMinutes,
+                Name = request.Name
             }
         );
 
@@ -91,6 +94,12 @@ public class WarpController : Controller
         public Vec3 FromPosition { get; set; }
         public Vec3 TargetPosition { get; set; }
         public string ElementTypeName { get; set; } = "WarpDrive";
+        /// <summary>If true (default), beacon is public (gameplayTag = "public_warp_beacon"). If false, beacon is private (empty gameplayTag).</summary>
+        [JsonProperty] public bool Public { get; set; } = true;
+        /// <summary>Minutes after spawn when the beacon construct is despawned. Default 2.</summary>
+        [JsonProperty] public double DespawnMinutes { get; set; } = 2;
+        /// <summary>Optional custom name for the beacon construct. If null or empty, uses default "[!] &lt;playerName&gt; Warp".</summary>
+        [JsonProperty] public string? Name { get; set; }
     }
 
     public class WarpAnchorResponse(ulong constructId, string constructName, Vec3 position, string positionString, string message)

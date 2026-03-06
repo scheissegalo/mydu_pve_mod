@@ -57,14 +57,14 @@ public class MyDuMod : IMod
             _weaponGrainOverrides,
             nameof(WeaponGrainOverrides.WeaponFireOnce)
         );
-        
+
         hookCallManager.Register(
             "PlayerGrain.InventoryReady",
             HookMode.Replace,
             this,
             nameof(InventoryReady)
         );
-        
+
         hookCallManager.Register(
             "ConstructGrain.WarpEnd",
             HookMode.Replace,
@@ -87,7 +87,7 @@ public class MyDuMod : IMod
         await context.Invoke();
 
         var constructId = (ulong)context.Grain.GetPrimaryKeyLong();
-        
+
         var orleans = _provider.GetRequiredService<IClusterClient>();
         var bank = _provider.GetRequiredService<IGameplayBank>();
         var constructElementsGrain = orleans.GetConstructElementsGrain(constructId);
@@ -96,12 +96,12 @@ public class MyDuMod : IMod
         if (warpDrives.Count == 0)
         {
             _logger.LogError("No Warp Drives Detected");
-            
+
             return;
         }
 
         var elementInfo = await constructElementsGrain.GetElement(warpDrives.First());
-        
+
         var warpAnchorApiClient = new WarpAnchorApiClient(_provider);
         await warpAnchorApiClient.SetWarpEndCooldown(new SetWarpEndCooldownRequest
         {
@@ -138,24 +138,24 @@ public class MyDuMod : IMod
                 //     context = ModActionContext.Global,
                 //     label = "Actions\\Open player board"
                 // },
-                new ModActionDefinition
-                {
-                    id = (ulong)ActionType.Interact,
-                    context = ModActionContext.Element,
-                    label = "Interact"
-                },
-                new ModActionDefinition
-                {
-                    id = (ulong)ActionType.LoadPlayerParty,
-                    context = ModActionContext.Global,
-                    label = "Group\\Open Group Widget"
-                },
-                new ModActionDefinition
-                {
-                    id = (ulong)ActionType.InviteToParty,
-                    context = ModActionContext.Avatar,
-                    label = "Group\\Invite to Group"
-                }
+                // new ModActionDefinition
+                // {
+                //     id = (ulong)ActionType.Interact,
+                //     context = ModActionContext.Element,
+                //     label = "Interact"
+                // },
+                // new ModActionDefinition
+                // {
+                //     id = (ulong)ActionType.LoadPlayerParty,
+                //     context = ModActionContext.Global,
+                //     label = "Group\\Open Group Widget"
+                // },
+                // new ModActionDefinition
+                // {
+                //     id = (ulong)ActionType.InviteToParty,
+                //     context = ModActionContext.Avatar,
+                //     label = "Group\\Invite to Group"
+                // }
                 // new ModActionDefinition
                 // {
                 //     id = (ulong)ActionType.ShootWeapon,
@@ -170,7 +170,7 @@ public class MyDuMod : IMod
 
     public async Task TriggerAction(ulong playerId, ModAction action)
     {
-        _logger.LogWarning("MyDuMod: TriggerAction called - actionId: {ActionId}, constructId: {ConstructId}, modName: {ModName}, playerId: {PlayerId}", 
+        _logger.LogWarning("MyDuMod: TriggerAction called - actionId: {ActionId}, constructId: {ConstructId}, modName: {ModName}, playerId: {PlayerId}",
             action.actionId, action.constructId, action.modName, playerId);
         try
         {
@@ -178,7 +178,7 @@ public class MyDuMod : IMod
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "MyDuMod: Failed to Trigger Mod Action {Id}. Exception: {ExceptionType} - {ExceptionMessage}. StackTrace: {StackTrace}", 
+            _logger.LogError(e, "MyDuMod: Failed to Trigger Mod Action {Id}. Exception: {ExceptionType} - {ExceptionMessage}. StackTrace: {StackTrace}",
                 action.actionId, e.GetType().Name, e.Message, e.StackTrace);
             throw;
         }
@@ -186,16 +186,16 @@ public class MyDuMod : IMod
 
     private async Task TriggerActionInternal(ulong playerId, ModAction action)
     {
-        _logger.LogWarning("MyDuMod: TriggerActionInternal called - actionId: {ActionId}, constructId: {ConstructId}, modName: {ModName}", 
+        _logger.LogWarning("MyDuMod: TriggerActionInternal called - actionId: {ActionId}, constructId: {ConstructId}, modName: {ModName}",
             action.actionId, action.constructId, action.modName);
-        
+
         if (action.actionId == (ulong)ActionType.PushConstructData)
         {
             var pushConstructData = new PushConstructDataAction(_cachedConstructDataService);
             await pushConstructData.HandleAction(playerId, action);
             return;
         }
-        
+
         _playerRateLimiter.TrackRequest(playerId);
         if (_playerRateLimiter.ExceededRateLimit(playerId))
         {

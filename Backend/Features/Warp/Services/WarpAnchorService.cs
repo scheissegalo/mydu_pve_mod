@@ -61,7 +61,7 @@ public class WarpAnchorService(IServiceProvider provider) : IWarpAnchorService
 
         // Blueprint filename comes from trait property (mod_trait_properties.default_value or mod_element_trait_properties).
         // The default below is only used when the trait has no "blueprintFileName" property. If the DB still has the old name, override so the new file is used without a DB change.
-        trait.TryGetPropertyValue("blueprintFileName", out var blueprintFileName, "PublicWarpBeacon.json");
+        trait.TryGetPropertyValue("blueprintFileName", out var blueprintFileName, "WarpBeaconNeuV.json");
         trait.TryGetPropertyValue("maxRange", out var maxRange, DistanceHelpers.OneSuInMeters * 100);
 
         var delta = command.TargetPosition - command.FromPosition;
@@ -79,7 +79,9 @@ public class WarpAnchorService(IServiceProvider provider) : IWarpAnchorService
         {
             var playerService = provider.GetRequiredService<IPlayerService>();
             var displayName = await playerService.FindPlayerNameById(command.PlayerId.id);
-            var warpDestinationConstructName = "[!] " + (string.IsNullOrEmpty(displayName) ? "Unknown" : displayName) + " Warp";
+            var warpDestinationConstructName = !string.IsNullOrWhiteSpace(command.Name)
+                ? command.Name!.Trim()
+                : "[!] " + (string.IsNullOrEmpty(displayName) ? "Unknown" : displayName) + " Warp";
 
             var constructId = await spawner.SpawnAsync(
                 new SpawnArgs
@@ -107,6 +109,23 @@ public class WarpAnchorService(IServiceProvider provider) : IWarpAnchorService
                 }
             );
 
+            // Public beacon: set gameplayTag on the core to "public_warp_beacon". Private: set to empty.
+            var constructElementsGrain = _orleans.GetConstructElementsGrain(constructId);
+            var coreUnits = await constructElementsGrain.GetElementsOfType<CoreUnit>();
+            if (coreUnits.Count > 0)
+            {
+                var core = coreUnits.First();
+                var gameplayTagValue = command.Public ? "public_warp_beacon" : "";
+                await constructElementsGrain.UpdateElementProperty(new ElementPropertyUpdate
+                {
+                    constructId = constructId,
+                    name = "gameplayTag",
+                    elementId = core.elementId,
+                    value = new PropertyValue(gameplayTagValue),
+                    timePoint = TimePoint.Now()
+                });
+            }
+
             await taskQueueService.EnqueueScript(
                 new ScriptActionItem
                 {
@@ -122,7 +141,7 @@ public class WarpAnchorService(IServiceProvider provider) : IWarpAnchorService
                     Type = "delete",
                     ConstructId = constructId
                 },
-                DateTime.UtcNow + TimeSpan.FromMinutes(2)
+                DateTime.UtcNow + TimeSpan.FromMinutes(Math.Max(0.1, command.DespawnMinutes))
             );
 
             var beaconPosString = beaconPosition.Vec3ToPosition();

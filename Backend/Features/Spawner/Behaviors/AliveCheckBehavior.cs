@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -61,7 +61,9 @@ public class AliveCheckBehavior(ulong constructId, IPrefab prefab) : IConstructB
                     .GetElement(constructId, _coreUnitElementId)
                     .WithRetry(new RetryOptions<ElementInfo>(3, _logger)
                     {
-                        OnRetryAttempt = async _ => await Task.Delay(500)
+                        OnRetryAttempt = async _ => await Task.Delay(500),
+                        // Do not retry on timeout - construct is likely already deleted (e.g. warp beacon despawned)
+                        ShouldRetryOnException = ex => ex is not TimeoutException
                     });
                 if (notAliveCoreUnit.IsCoreDestroyed())
                 {
@@ -125,8 +127,9 @@ public class AliveCheckBehavior(ulong constructId, IPrefab prefab) : IConstructB
             .GetElement(constructId, _coreUnitElementId)
             .WithRetry(new RetryOptions<ElementInfo>(3, _logger)
             {
-                OnRetryAttempt = async _ => await Task.Delay(500)
-            });;
+                OnRetryAttempt = async _ => await Task.Delay(500),
+                ShouldRetryOnException = ex => ex is not TimeoutException
+            });
         var constructInfoOutcome = await _constructService.GetConstructInfoAsync(constructId);
         var constructInfo = constructInfoOutcome.Info;
 
