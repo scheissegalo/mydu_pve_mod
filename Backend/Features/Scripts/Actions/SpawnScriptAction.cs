@@ -225,6 +225,7 @@ public class SpawnScriptAction(ScriptActionItem actionItem) : IScriptAction
         {
             // TODO obtain time span from territory
             // TODO add territory to sector instance
+            _logger.LogInformation("SpawnScriptAction: Setting wreck despawn to 3h for construct {ConstructId} (prefab: {Prefab})", constructId, actionItem.Prefab);
             await provider.GetRequiredService<IConstructService>()
                 .SetAutoDeleteFromNowAsync(constructId, TimeSpan.FromHours(3));
         }

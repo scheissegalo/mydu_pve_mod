@@ -16,6 +16,7 @@ using Mod.DynamicEncounters.Features.Scripts.Actions.Interfaces;
 using Mod.DynamicEncounters.Features.TaskQueue.Data;
 using Mod.DynamicEncounters.Features.TaskQueue.Interfaces;
 using Mod.DynamicEncounters.Helpers;
+using Mod.DynamicEncounters.Threads.Handles;
 using Mod.DynamicEncounters.Helpers.DU;
 using Newtonsoft.Json.Linq;
 using NQ;
@@ -218,17 +219,33 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
                 ClaimedAtUtc = stateBeforeSet?.ClaimedAtUtc
             });
 
+            // Use handles as source of truth: AliveCheckBehavior removes handles when constructs are destroyed.
+            // Do NOT filter by ExistsAndNotDeleted - the game may set deleted_at on constructs in ways that
+            // would incorrectly exclude live NPCs (e.g. wrecks, schema quirks), causing the event to end prematurely.
             var handles = (await constructHandleRepo.FindAlienWarHandlesInSectorAsync(data.Sector, data.CoreConstructId)).ToList();
-            var aliveHandles = new List<ConstructHandleItem>();
-            foreach (var h in handles)
-            {
-                if (await constructService.ExistsAndNotDeleted(h.ConstructId))
-                    aliveHandles.Add(h);
-            }
+            var aliveHandles = handles.ToList();
 
             if (aliveHandles.Count == 0)
             {
-                _logger.LogInformation("AlienWar: All spawns destroyed for core {CoreId}, ending event", data.CoreConstructId);
+                // Grace period: don't end event immediately after start - spawns may not be loaded yet
+                var activeEvents = await eventRepo.GetActiveAsync();
+                var evt = activeEvents.FirstOrDefault(e => e.CoreConstructId == data.CoreConstructId);
+                var eventAge = evt != null ? DateTime.UtcNow - evt.CreatedAt : TimeSpan.Zero;
+                const int gracePeriodSeconds = 90;
+                if (evt != null && eventAge.TotalSeconds < gracePeriodSeconds)
+                {
+                    _logger.LogInformation(
+                        "AlienWar: Core {CoreId} has 0 alive spawns but event started {Age:F0}s ago (grace period {Grace}s). " +
+                        "Handles found: {HandleCount}. Re-checking in 30s.",
+                        data.CoreConstructId, eventAge.TotalSeconds, gracePeriodSeconds, handles.Count);
+                    await EnqueueAlienWarCheck(data, DateTime.UtcNow.AddSeconds(30));
+                    await _repository.TagCompleted(message.Id);
+                    return;
+                }
+
+                _logger.LogInformation(
+                    "AlienWar: All spawns destroyed for core {CoreId}, ending event (handles found: {HandleCount})",
+                    data.CoreConstructId, handles.Count);
                 await SendAlienWarEventEndSummaryAsync(data, [], shieldService, "PlayersWin");
                 stateService.RemoveState(data.CoreConstructId);
                 await eventRepo.RemoveByCoreAsync(data.CoreConstructId);
@@ -363,6 +380,11 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
         }
 
         await constructHandleRepo.TagAsDeletedConstructHandledThatAreDeletedConstructs();
+        foreach (var h in handles)
+        {
+            ConstructBehaviorLoop.ConstructHandles.TryRemove(h.ConstructId, out _);
+            ConstructBehaviorLoop.ConstructHandleHeartbeat.TryRemove(h.ConstructId, out _);
+        }
         stateService.RemoveState(data.CoreConstructId);
         await eventRepo.RemoveByCoreAsync(data.CoreConstructId);
     }

@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
@@ -12,6 +13,7 @@ using Mod.DynamicEncounters.Features.Scripts.Actions.Interfaces;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Skills.Data;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Skills.Interfaces;
 using Mod.DynamicEncounters.Helpers;
+using Mod.DynamicEncounters.Threads.Handles;
 using NQ;
 using NQ.Interfaces;
 using NQutils.Def;
@@ -94,6 +96,9 @@ public class ConstructController : Controller
         var constructHandleRepository = provider.GetRequiredService<IConstructHandleRepository>();
         await constructHandleRepository.DeleteByConstructId(constructId);
 
+        ConstructBehaviorLoop.ConstructHandles.TryRemove(constructId, out _);
+        ConstructBehaviorLoop.ConstructHandleHeartbeat.TryRemove(constructId, out _);
+
         var gcGrain = orleans.GetConstructGCGrain();
         await gcGrain.DeleteConstruct(constructId);
 
@@ -106,11 +111,14 @@ public class ConstructController : Controller
     {
         var provider = ModBase.ServiceProvider;
         var orleans = provider.GetOrleans();
-
+        var constructHandleRepository = provider.GetRequiredService<IConstructHandleRepository>();
         var gcGrain = orleans.GetConstructGCGrain();
 
         foreach (var constructId in constructIds)
         {
+            await constructHandleRepository.DeleteByConstructId(constructId);
+            ConstructBehaviorLoop.ConstructHandles.TryRemove(constructId, out _);
+            ConstructBehaviorLoop.ConstructHandleHeartbeat.TryRemove(constructId, out _);
             await gcGrain.DeleteConstruct(constructId);
         }
 
@@ -281,6 +289,79 @@ public class ConstructController : Controller
         var result = await constructRepository.FindActiveNpcConstructs();
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Lists construct handles currently tracked by the mod (same IDs as in /stats "constructHandles").
+    /// These are NPC/dynamic constructs that get behavior ticks. Optional ?detail=true for sector, metadata, isWreck, and despawnAtUtc.
+    /// </summary>
+    [HttpGet]
+    [Route("handles")]
+    [SwaggerOperation("List active construct handles (tracked NPC/dynamic constructs)")]
+    public async Task<IActionResult> GetHandles([FromQuery] bool detail = false)
+    {
+        var handles = ConstructBehaviorLoop.ConstructHandles;
+        if (!detail)
+            return Ok(handles.Select(x => x.Key).ToList());
+
+        var constructService = ModBase.ServiceProvider.GetRequiredService<IConstructService>();
+        var handleList = handles.Select(x => (x.Key, x.Value)).ToList();
+
+        var despawnTasks = handleList.Select(async kvp =>
+        {
+            var at = await constructService.GetConstructDespawnTimeUtcAsync(kvp.Key);
+            return (kvp.Key, despawnAtUtc: at);
+        });
+        var despawnResults = await Task.WhenAll(despawnTasks);
+        var despawnByConstruct = despawnResults.ToDictionary(x => x.Key, x => x.despawnAtUtc);
+
+        var list = handleList.Select(kvp => new
+        {
+            constructId = kvp.Key,
+            sector = kvp.Value.Sector,
+            factionId = kvp.Value.FactionId,
+            constructName = kvp.Value.JsonProperties?.ConstructName,
+            tags = kvp.Value.JsonProperties?.Tags,
+            isWreck = kvp.Value.ConstructDefinitionItem?.ServerProperties?.IsDynamicWreck ?? false,
+            despawnAtUtc = despawnByConstruct.TryGetValue(kvp.Key, out var at) && at.HasValue ? (DateTime?)at.Value : null
+        }).ToList();
+        return Ok(list);
+    }
+
+    /// <summary>
+    /// Removes construct handles from tracking (stops behavior ticks, soft-deletes handle in DB).
+    /// Optionally deletes the constructs via Orleans (deleteConstructs: true).
+    /// Use this to clean up handles that appear in /stats "constructHandles" (e.g. after an encounter ended).
+    /// </summary>
+    [HttpDelete]
+    [Route("handles")]
+    [SwaggerOperation("Remove construct handles from tracking; optionally delete constructs")]
+    public async Task<IActionResult> DeleteHandles([FromBody] DeleteHandlesRequest request)
+    {
+        var provider = ModBase.ServiceProvider;
+        var constructHandleRepository = provider.GetRequiredService<IConstructHandleRepository>();
+
+        foreach (var constructId in request.ConstructIds)
+        {
+            await constructHandleRepository.DeleteByConstructId(constructId);
+            ConstructBehaviorLoop.ConstructHandles.TryRemove(constructId, out _);
+            ConstructBehaviorLoop.ConstructHandleHeartbeat.TryRemove(constructId, out _);
+
+            if (request.DeleteConstructs)
+            {
+                var orleans = provider.GetOrleans();
+                var gcGrain = orleans.GetConstructGCGrain();
+                await gcGrain.DeleteConstruct(constructId);
+            }
+        }
+
+        return Ok(new { removed = request.ConstructIds.Length, deleteConstructs = request.DeleteConstructs });
+    }
+
+    public class DeleteHandlesRequest
+    {
+        public ulong[] ConstructIds { get; set; } = [];
+        public bool DeleteConstructs { get; set; }
     }
 
     [HttpGet]

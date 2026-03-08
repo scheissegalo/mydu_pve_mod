@@ -60,6 +60,22 @@ public class AreaScanController : Controller
         return Ok(contacts);
     }
 
+    /// <summary>Returns abandoned constructs (wrecks / shot-down ships) in the area.</summary>
+    [Route("abandoned")]
+    [HttpPost]
+    public async Task<IActionResult> AbandonedScan([FromBody] AreaScanRequest request)
+    {
+        var provider = ModBase.ServiceProvider;
+        var areaScanService = provider.GetRequiredService<IAreaScanService>();
+
+        var pos = await request.GetReferencePosition(provider);
+
+        var contacts =
+            await areaScanService.ScanForAbandonedConstructs(pos, request.Radius, request.Limit);
+
+        return Ok(contacts);
+    }
+
     public class AreaScanRequest
     {
         [JsonProperty] public ulong? ConstructId { get; set; }

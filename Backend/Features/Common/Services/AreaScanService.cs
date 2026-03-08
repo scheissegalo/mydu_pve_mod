@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -101,7 +101,10 @@ public class AreaScanService(IServiceProvider provider) : IAreaScanService
              SELECT 
                  C.id, 
                  C.name, 
-                 ST_3DDistance(C.position, ST_MakePoint({VectorToSql(position)})) as distance 
+                 ST_3DDistance(C.position, ST_MakePoint({VectorToSql(position)})) as distance,
+                 C.position_x,
+                 C.position_y,
+                 C.position_z
              FROM public.construct C
              WHERE ST_DWithin(C.position, ST_MakePoint({VectorToSql(position)}), {radius})
                  AND ST_3DDistance(C.position, ST_MakePoint({VectorToSql(position)})) <= {radius}

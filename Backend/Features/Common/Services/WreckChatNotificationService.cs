@@ -11,8 +11,8 @@ namespace Mod.DynamicEncounters.Features.Common.Services;
 
 public class WreckChatNotificationService(IServiceProvider provider) : IWreckChatNotificationService
 {
-    /// <summary>Fallback when GC config is unavailable (e.g. in catch).</summary>
-    private static readonly TimeSpan FallbackWreckLifetime = TimeSpan.FromHours(3);
+    /// <summary>Despawn time for player-destroyed NPC wrecks (overrides server default). Also used as fallback when GC config is unavailable.</summary>
+    private static readonly TimeSpan NpcWreckLifetime = TimeSpan.FromHours(3);
     /// <summary>Delay before announcing wreck so the killer can loot first.</summary>
     private static readonly TimeSpan AnnouncementDelay = TimeSpan.FromMinutes(15);
 
@@ -28,18 +28,16 @@ public class WreckChatNotificationService(IServiceProvider provider) : IWreckCha
         DateTime? despawnAt = null;
         try
         {
+            // Force 3h despawn for player-destroyed NPC wrecks (overrides server default 720h)
+            await _constructService.SetAutoDeleteFromNowAsync(constructId, NpcWreckLifetime);
             despawnAt = await _constructService.GetConstructDespawnTimeUtcAsync(constructId);
             if (!despawnAt.HasValue)
-            {
-                var gcLifetime = _constructService.GetGcAbandonedConstructDeleteDelay();
-                await _constructService.SetAutoDeleteFromNowAsync(constructId, gcLifetime);
-                despawnAt = DateTime.UtcNow.Add(gcLifetime);
-            }
+                despawnAt = DateTime.UtcNow.Add(NpcWreckLifetime);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "WreckChatNotificationService: Failed to get/set despawn time for construct {ConstructId}", constructId);
-            despawnAt = DateTime.UtcNow.Add(FallbackWreckLifetime);
+            despawnAt = DateTime.UtcNow.Add(NpcWreckLifetime);
         }
 
         var despawnStr = despawnAt.HasValue

@@ -150,43 +150,43 @@ public class WarpAnchorService(IServiceProvider provider) : IWarpAnchorService
             _logger.LogInformation("Warp anchor: updating player {PlayerId} warp destination via grain (UpdatePlayerProperty fromServer=true)", playerIdLong);
 
             // Update via IPlayerGrain.UpdatePlayerProperty(..., fromServer: true) so the grain calls NotifyPlayer(PlayerPropertyUpdated) and the client refreshes warp UI without relog.
-            var playerGrain = _orleans.GetPlayerGrain(command.PlayerId);
-            await playerGrain.UpdatePlayerProperty(new PlayerPropertyUpdate
-            {
-                playerId = playerIdLong,
-                name = "warpDestinationConstructName",
-                value = new PropertyValue(warpDestinationConstructName),
-                relative = false
-            }, fromServer: true);
-            await playerGrain.UpdatePlayerProperty(new PlayerPropertyUpdate
-            {
-                playerId = playerIdLong,
-                name = "warpDestinationConstructId",
-                value = new PropertyValue(constructId),
-                relative = false
-            }, fromServer: true);
-            await playerGrain.UpdatePlayerProperty(new PlayerPropertyUpdate
-            {
-                playerId = playerIdLong,
-                name = "warpDestinationWorldPosition",
-                value = new PropertyValue(beaconPosString),
-                relative = false
-            }, fromServer: true);
+            // var playerGrain = _orleans.GetPlayerGrain(command.PlayerId);
+            // await playerGrain.UpdatePlayerProperty(new PlayerPropertyUpdate
+            // {
+            //     playerId = playerIdLong,
+            //     name = "warpDestinationConstructName",
+            //     value = new PropertyValue(warpDestinationConstructName),
+            //     relative = false
+            // }, fromServer: true);
+            // await playerGrain.UpdatePlayerProperty(new PlayerPropertyUpdate
+            // {
+            //     playerId = playerIdLong,
+            //     name = "warpDestinationConstructId",
+            //     value = new PropertyValue(constructId),
+            //     relative = false
+            // }, fromServer: true);
+            // await playerGrain.UpdatePlayerProperty(new PlayerPropertyUpdate
+            // {
+            //     playerId = playerIdLong,
+            //     name = "warpDestinationWorldPosition",
+            //     value = new PropertyValue(beaconPosString),
+            //     relative = false
+            // }, fromServer: true);
 
-            _logger.LogInformation("Warp anchor: grain UpdatePlayerProperty completed for player {PlayerId}; pushing via Orleans HTTP as fallback", playerIdLong);
+            // _logger.LogInformation("Warp anchor: grain UpdatePlayerProperty completed for player {PlayerId}; pushing via Orleans HTTP as fallback", playerIdLong);
 
             // If Backend runs in a different process, the grain we called might not be the one with the client connection. Push via game server's Orleans HTTP API so the update runs where the client is connected.
-            var httpOkCount = await TryPushWarpPropertiesViaOrleansHttp(playerIdLong, warpDestinationConstructName, constructId, beaconPosString);
+            // var httpOkCount = await TryPushWarpPropertiesViaOrleansHttp(playerIdLong, warpDestinationConstructName, constructId, beaconPosString);
 
-            await NotifyPlayerWarpDestinationUpdated(command.PlayerId, constructId);
+            // await NotifyPlayerWarpDestinationUpdated(command.PlayerId, constructId);
 
-            // Always log at Warning so it appears in Mod.log; include HTTP result and known client limitation
-            _logger.LogWarning(
-                "Warp anchor created for player {PlayerId}, beacon {ConstructId}. Grain updates sent; Orleans HTTP SetDynamicProperty {HttpOk}/3. If warp drive UI does not update without relog, the game client likely does not refresh warp destination on PlayerPropertyUpdated.",
-                playerIdLong,
-                constructId,
-                httpOkCount
-            );
+            // // Always log at Warning so it appears in Mod.log; include HTTP result and known client limitation
+            // _logger.LogWarning(
+            //     "Warp anchor created for player {PlayerId}, beacon {ConstructId}. Grain updates sent; Orleans HTTP SetDynamicProperty {HttpOk}/3. If warp drive UI does not update without relog, the game client likely does not refresh warp destination on PlayerPropertyUpdated.",
+            //     playerIdLong,
+            //     constructId,
+            //     httpOkCount
+            // );
 
             return CreateWarpAnchorOutcome.WarpAnchorCreated(
                 constructId,

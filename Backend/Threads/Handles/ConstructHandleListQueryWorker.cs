@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
@@ -45,8 +45,8 @@ public class ConstructHandleListQueryWorker : BackgroundService
             var constructHandleRepository = ModBase.ServiceProvider.GetRequiredService<IConstructHandleRepository>();
 
             var items = await constructHandleRepository.FindActiveHandlesAsync();
+            var activeConstructIds = items.Select(x => x.ConstructId).ToHashSet();
 
-            // ConstructBehaviorLoop.ConstructHandles.Clear();
             foreach (var item in items)
             {
                 var failed = ConstructBehaviorLoop.ConstructHandles.TryAdd(item.ConstructId, item);
@@ -55,6 +55,15 @@ public class ConstructHandleListQueryWorker : BackgroundService
                 {
                     logger.LogError("Failed to add item {ConstructId}", item.ConstructId);
                 }
+            }
+
+            // Remove in-memory handles that are no longer active in DB (e.g. encounter ended, sector cleanup)
+            foreach (var kvp in ConstructBehaviorLoop.ConstructHandles.ToList())
+            {
+                if (stoppingToken.IsCancellationRequested) return;
+                if (activeConstructIds.Contains(kvp.Key)) continue;
+                ConstructBehaviorLoop.ConstructHandles.TryRemove(kvp.Key, out _);
+                ConstructBehaviorLoop.ConstructHandleHeartbeat.TryRemove(kvp.Key, out _);
             }
 
             var deadConstructHandles = ConstructBehaviorLoop.ConstructHandleHeartbeat
