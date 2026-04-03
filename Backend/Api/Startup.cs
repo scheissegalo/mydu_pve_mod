@@ -1,9 +1,11 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc.Formatters;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -70,6 +72,17 @@ public class Startup(IServiceCollection rootServices)
         }).AddNewtonsoftJson(options =>
         {
             options.SerializerSettings.NullValueHandling = NullValueHandling.Ignore;
+        });
+
+        // Blueprint uploads: Kestrel defaults MaxRequestBodySize to ~30 MB (stricter than multipart form defaults).
+        const long maxUploadBytes = 100_000_000;
+        services.Configure<FormOptions>(options =>
+        {
+            options.MultipartBodyLengthLimit = maxUploadBytes;
+        });
+        services.Configure<KestrelServerOptions>(options =>
+        {
+            options.Limits.MaxRequestBodySize = maxUploadBytes;
         });
 
         services.AddLogging(logging => logging.SetupPveModLog(logWebHostInfo: true));

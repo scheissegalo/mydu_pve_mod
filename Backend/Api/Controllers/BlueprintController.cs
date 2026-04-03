@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Mod.DynamicEncounters.Features.Common.Data;
 using Mod.DynamicEncounters.Features.Common.Interfaces;
 using Mod.DynamicEncounters.Helpers;
@@ -28,6 +29,9 @@ public partial class BlueprintController : Controller
         public string? Name { get; set; }
         public ulong? ParentId { get; set; }
     }
+
+    private readonly ILogger<BlueprintController> _logger
+        = ModBase.ServiceProvider.CreateLogger<BlueprintController>();
 
     [SwaggerOperation("Downloads a Blueprint from a Folder")]
     [Route("download/{folder}/{file}")]
@@ -134,6 +138,13 @@ public partial class BlueprintController : Controller
     [HttpPost]
     public async Task<IActionResult> UploadSanitizeAsync(string folder, IFormFile? file)
     {
+        _logger.LogError(
+            "UploadSanitize plusbp folder={Folder}: file null={IsNull}, name={FileName}, length={Length}",
+            folder,
+            file == null,
+            file?.FileName,
+            file?.Length);
+
         if (file == null || file.Length == 0 || !file.FileName.EndsWith("json"))
         {
             return BadRequest("Invalid");

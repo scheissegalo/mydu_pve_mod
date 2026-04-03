@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -15,6 +16,7 @@ using Mod.DynamicEncounters.Features.Scripts.Actions.Data;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Interfaces;
 using Mod.DynamicEncounters.Features.TaskQueue.Data;
 using Mod.DynamicEncounters.Features.TaskQueue.Interfaces;
+using Mod.DynamicEncounters.Features.VoxelService.Interfaces;
 using Mod.DynamicEncounters.Helpers;
 using Mod.DynamicEncounters.Threads.Handles;
 using Mod.DynamicEncounters.Helpers.DU;
@@ -209,6 +211,12 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
 
             var phase = (shieldStatus.IsInLockdown || shieldStatus.IsInImmunity) ? AlienWarPhase.Guard : AlienWarPhase.Attack;
             var stateBeforeSet = stateService.GetState(data.CoreConstructId);
+            var activeEventsForMerge = await eventRepo.GetActiveAsync();
+            var evtForMerge = activeEventsForMerge.FirstOrDefault(e => e.CoreConstructId == data.CoreConstructId);
+            var lockdownReinforcementsSpawned =
+                stateBeforeSet?.LockdownReinforcementsSpawned == true
+                || evtForMerge?.LockdownReinforcementsSpawned == true;
+
             stateService.SetState(data.CoreConstructId, new AlienWarEventState
             {
                 CoreConstructId = data.CoreConstructId,
@@ -216,8 +224,49 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
                 ScriptName = data.ScriptName,
                 Phase = phase,
                 LockdownEndAtUtc = shieldStatus.LockdownExitAtUtc,
-                ClaimedAtUtc = stateBeforeSet?.ClaimedAtUtc
+                ClaimedAtUtc = stateBeforeSet?.ClaimedAtUtc,
+                LockdownReinforcementsSpawned = lockdownReinforcementsSpawned
             });
+
+            if (!lockdownReinforcementsSpawned
+                && shieldStatus.IsInLockdown
+                && (stateBeforeSet?.Phase == AlienWarPhase.Attack || stateBeforeSet == null))
+            {
+                var scriptService = provider.GetRequiredService<IScriptService>();
+                var voxelService = provider.GetRequiredService<IVoxelServiceClient>();
+                await voxelService.TriggerConstructCacheAsync(new ConstructId { constructId = data.CoreConstructId });
+                var properties = new ConcurrentDictionary<string, object>
+                {
+                    ["AlienWarTargetConstructId"] = data.CoreConstructId
+                };
+                var scriptContext = new ScriptContext(provider, 1, [], data.Sector, null)
+                {
+                    ConstructId = data.CoreConstructId,
+                    Properties = properties
+                };
+                var scriptResult = await scriptService.ExecuteScriptAsync(data.ScriptName, scriptContext);
+                if (scriptResult.Success)
+                {
+                    await eventRepo.SetLockdownReinforcementsSpawnedAsync(data.CoreConstructId, true);
+                    stateService.SetState(data.CoreConstructId, new AlienWarEventState
+                    {
+                        CoreConstructId = data.CoreConstructId,
+                        Sector = data.Sector,
+                        ScriptName = data.ScriptName,
+                        Phase = phase,
+                        LockdownEndAtUtc = shieldStatus.LockdownExitAtUtc,
+                        ClaimedAtUtc = stateBeforeSet?.ClaimedAtUtc,
+                        LockdownReinforcementsSpawned = true
+                    });
+                    _logger.LogInformation("AlienWar: Spawned lockdown reinforcements for core {CoreId}", data.CoreConstructId);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "AlienWar: Lockdown reinforcements script failed for core {CoreId}: {Message}",
+                        data.CoreConstructId, scriptResult.Message);
+                }
+            }
 
             // Use handles as source of truth: AliveCheckBehavior removes handles when constructs are destroyed.
             // Do NOT filter by ExistsAndNotDeleted - the game may set deleted_at on constructs in ways that
@@ -228,8 +277,7 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
             if (aliveHandles.Count == 0)
             {
                 // Grace period: don't end event immediately after start - spawns may not be loaded yet
-                var activeEvents = await eventRepo.GetActiveAsync();
-                var evt = activeEvents.FirstOrDefault(e => e.CoreConstructId == data.CoreConstructId);
+                var evt = evtForMerge;
                 var eventAge = evt != null ? DateTime.UtcNow - evt.CreatedAt : TimeSpan.Zero;
                 const int gracePeriodSeconds = 90;
                 if (evt != null && eventAge.TotalSeconds < gracePeriodSeconds)
@@ -281,6 +329,7 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
                             });
                         }
 
+                        var reinforcementsFlag = stateService.GetState(data.CoreConstructId)?.LockdownReinforcementsSpawned == true;
                         stateService.SetState(data.CoreConstructId, new AlienWarEventState
                         {
                             CoreConstructId = data.CoreConstructId,
@@ -288,7 +337,8 @@ public class TaskQueueService(IServiceProvider provider) : ITaskQueueService
                             ScriptName = data.ScriptName,
                             Phase = AlienWarPhase.PostClaim,
                             LockdownEndAtUtc = null,
-                            ClaimedAtUtc = DateTime.UtcNow
+                            ClaimedAtUtc = DateTime.UtcNow,
+                            LockdownReinforcementsSpawned = reinforcementsFlag
                         });
                         var nextPostClaimCheck = DateTime.UtcNow.AddMinutes(10);
                         await EnqueueAlienWarCheck(data, nextPostClaimCheck);

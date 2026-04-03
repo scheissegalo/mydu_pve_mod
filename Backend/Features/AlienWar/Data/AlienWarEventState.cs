@@ -20,4 +20,6 @@ public class AlienWarEventState
     public DateTime? LockdownEndAtUtc { get; set; }
     /// <summary>When core was claimed and repaired; used for PostClaim 10-min guard.</summary>
     public DateTime? ClaimedAtUtc { get; set; }
+    /// <summary>Second wave spawn on first shield lockdown has been executed (mirrors DB).</summary>
+    public bool LockdownReinforcementsSpawned { get; set; }
 }

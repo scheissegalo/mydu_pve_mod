@@ -66,6 +66,7 @@ public static class FeaturesRegistration
         services.AddSingleton<IErrorService, ErrorService>();
         services.AddSingleton<IErrorService, ErrorService>();
         services.AddSingleton<IPlayerAlertService, PlayerAlertService>();
+        services.AddSingleton<IBroadcastTopNotificationService, BroadcastTopNotificationService>();
         services.AddSingleton<IBlueprintSanitizerService, BlueprintSanitizerService>();
         services.AddSingleton<IGeneralChatService, GeneralChatService>();
         services.AddSingleton<IWreckChatNotificationService, WreckChatNotificationService>();

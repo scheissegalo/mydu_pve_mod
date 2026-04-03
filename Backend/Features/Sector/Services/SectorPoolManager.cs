@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -9,6 +9,7 @@ using Mod.DynamicEncounters.Common.Helpers;
 using Mod.DynamicEncounters.Common.Interfaces;
 using Mod.DynamicEncounters.Database.Interfaces;
 using Mod.DynamicEncounters.Features.Common.Interfaces;
+using Mod.DynamicEncounters.Features.Common.Services;
 using Mod.DynamicEncounters.Features.Events.Data;
 using Mod.DynamicEncounters.Features.Events.Interfaces;
 using Mod.DynamicEncounters.Features.Interfaces;
@@ -379,16 +380,37 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
             return SectorActivationOutcome.Failed("No Player Constructs");
         }
 
-        HashSet<ulong> playerIds = [];
+        var constructIds = constructs.ToHashSet();
+        var resolvedPlayerIds = (await spatialHashRepository.GetDistinctPlayerIdsForConstructs(constructIds)).ToHashSet();
+
+        var orgOnlyCount = await spatialHashRepository.GetOrganizationOnlyConstructCountAmong(constructIds);
+        if (orgOnlyCount > 0)
+        {
+            _logger.LogInformation(
+                "ActivateSector: {OrgOnlyCount} nearby player construct(s) are organization-owned only (no personal player_id); omitted from PlayerIds and targeted top notifications. Sector {Sector}",
+                orgOnlyCount,
+                sectorInstance.Sector);
+        }
 
         _logger.LogInformation(
-            "Starting up sector F({Faction}) ({Sector}) encounter: '{Encounter}'",
+            "Starting up sector F({Faction}) ({Sector}) encounter: '{Encounter}' with {PlayerCount} resolved player(s)",
             sectorInstance.FactionId,
             sectorInstance.Sector,
-            sectorInstance.OnSectorEnterScript
+            sectorInstance.OnSectorEnterScript,
+            resolvedPlayerIds.Count
         );
 
-        return await ActivateSectorInternal(sectorInstance, playerIds, constructs.ToHashSet());
+        if (resolvedPlayerIds.Count > 0)
+        {
+            var broadcastService = serviceProvider.GetRequiredService<IBroadcastTopNotificationService>();
+            var zoneKind = SectorEnterZoneClassifier.Classify(sectorInstance);
+            await broadcastService.SendEncounterZoneEnterBarAsync(
+                resolvedPlayerIds,
+                zoneKind,
+                sectorInstance.Name);
+        }
+
+        return await ActivateSectorInternal(sectorInstance, resolvedPlayerIds, constructIds);
     }
 
     private async Task<SectorActivationOutcome> ActivateSectorInternal(

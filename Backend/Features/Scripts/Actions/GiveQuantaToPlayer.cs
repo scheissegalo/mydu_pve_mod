@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using Backend.Database;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mod.DynamicEncounters.Common.Helpers;
+using Mod.DynamicEncounters.Features.Common.Services;
 using Mod.DynamicEncounters.Features.Events.Data;
 using Mod.DynamicEncounters.Features.Events.Interfaces;
 using Mod.DynamicEncounters.Features.NQ.Interfaces;
@@ -34,6 +35,7 @@ public class GiveQuantaToPlayer(ScriptActionItem actionItem) : IScriptAction
         var sql = provider.GetRequiredService<ISql>();
         var walletService = provider.GetRequiredService<IWalletService>();
         var eventService = provider.GetRequiredService<IEventService>();
+        var broadcastTop = provider.GetRequiredService<IBroadcastTopNotificationService>();
 
         if (context.PlayerIds.Count == 0)
         {
@@ -41,6 +43,19 @@ public class GiveQuantaToPlayer(ScriptActionItem actionItem) : IScriptAction
         }
 
         var valuePerPlayer = actionItem.Value / context.PlayerIds.Count;
+        string? titleOverride = null;
+        if (!string.IsNullOrWhiteSpace(actionItem.Message))
+        {
+            titleOverride = actionItem.Message.Trim();
+        }
+        else if (actionItem.Properties.TryGetValue("Reason", out var reasonObj) && reasonObj != null)
+        {
+            var r = reasonObj.ToString();
+            if (!string.IsNullOrWhiteSpace(r))
+            {
+                titleOverride = r.Trim();
+            }
+        }
 
         foreach (var playerId in context.PlayerIds)
         {
@@ -60,6 +75,13 @@ public class GiveQuantaToPlayer(ScriptActionItem actionItem) : IScriptAction
                         (ulong)valuePerPlayer
                     )
                 );
+
+                await broadcastTop.SendKillRewardQuantaNotificationAsync(
+                    playerId,
+                    (long)valuePerPlayer,
+                    (long)actionItem.Value,
+                    context.PlayerIds.Count,
+                    titleOverride);
             }
             catch (Exception e)
             {

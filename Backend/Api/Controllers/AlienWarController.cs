@@ -78,7 +78,8 @@ public class AlienWarController : Controller
             Sector = request.Sector,
             ScriptName = request.ScriptName,
             CooldownSecondsOverride = request.CooldownSecondsOverride,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            LockdownReinforcementsSpawned = false
         });
 
         await taskQueueService.EnqueueAlienWarCheck(

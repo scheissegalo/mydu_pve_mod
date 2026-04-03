@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -106,6 +106,56 @@ public class ConstructSpatialHashRepository(IServiceProvider serviceProvider) : 
         )).ToList();
 
         return result;
+    }
+
+    public async Task<IReadOnlyList<ulong>> GetDistinctPlayerIdsForConstructs(IEnumerable<ulong> constructIds)
+    {
+        var ids = constructIds.Select(id => (long)id).Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return [];
+        }
+
+        using var db = _factory.Create();
+        db.Open();
+
+        var rows = (await db.QueryAsync<long>(
+            $"""
+            SELECT DISTINCT O.player_id
+            FROM public.construct C
+            INNER JOIN public.ownership O ON (C.owner_entity_id = O.id)
+            WHERE C.id = ANY(@ids)
+              AND O.player_id IS NOT NULL
+              AND O.player_id NOT IN ({StaticPlayerId.Aphelia}, {StaticPlayerId.Unknown})
+            """,
+            new { ids }
+        )).ToList();
+
+        return rows.Select(x => (ulong)x).ToList();
+    }
+
+    public async Task<int> GetOrganizationOnlyConstructCountAmong(IEnumerable<ulong> constructIds)
+    {
+        var ids = constructIds.Select(id => (long)id).Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return 0;
+        }
+
+        using var db = _factory.Create();
+        db.Open();
+
+        return await db.ExecuteScalarAsync<int>(
+            """
+            SELECT COUNT(*)::int
+            FROM public.construct C
+            INNER JOIN public.ownership O ON (C.owner_entity_id = O.id)
+            WHERE C.id = ANY(@ids)
+              AND O.player_id IS NULL
+              AND O.organization_id IS NOT NULL
+            """,
+            new { ids }
+        );
     }
 
     public async Task<IEnumerable<ConstructSectorRow>> FindPlayerLiveConstructsOnSectorInstances(IEnumerable<Vec3> excludeSectorList)

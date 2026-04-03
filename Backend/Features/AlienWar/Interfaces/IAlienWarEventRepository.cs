@@ -9,4 +9,5 @@ public interface IAlienWarEventRepository
     Task AddAsync(AlienWarEventRecord record);
     Task RemoveByCoreAsync(ulong coreConstructId);
     Task<IReadOnlyList<AlienWarEventRecord>> GetActiveAsync();
+    Task SetLockdownReinforcementsSpawnedAsync(ulong coreConstructId, bool value);
 }

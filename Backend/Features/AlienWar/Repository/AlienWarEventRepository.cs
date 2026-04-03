@@ -22,8 +22,8 @@ public class AlienWarEventRepository(IServiceProvider provider) : IAlienWarEvent
         db.Open();
         await db.ExecuteAsync(
             $"""
-            INSERT INTO public.{TableName} (id, core_construct_id, sector_x, sector_y, sector_z, script_name, cooldown_seconds_override, created_at)
-            VALUES (@id, @core_construct_id, @sector_x, @sector_y, @sector_z, @script_name, @cooldown_seconds_override, @created_at)
+            INSERT INTO public.{TableName} (id, core_construct_id, sector_x, sector_y, sector_z, script_name, cooldown_seconds_override, created_at, lockdown_reinforcements_spawned)
+            VALUES (@id, @core_construct_id, @sector_x, @sector_y, @sector_z, @script_name, @cooldown_seconds_override, @created_at, @lockdown_reinforcements_spawned)
             """,
             new
             {
@@ -34,7 +34,8 @@ public class AlienWarEventRepository(IServiceProvider provider) : IAlienWarEvent
                 sector_z = record.Sector.z,
                 script_name = record.ScriptName,
                 cooldown_seconds_override = record.CooldownSecondsOverride,
-                created_at = record.CreatedAt
+                created_at = record.CreatedAt,
+                lockdown_reinforcements_spawned = record.LockdownReinforcementsSpawned
             });
     }
 
@@ -52,7 +53,7 @@ public class AlienWarEventRepository(IServiceProvider provider) : IAlienWarEvent
         using var db = _factory.Create();
         db.Open();
         var rows = (await db.QueryAsync<AlienWarEventRow>(
-            $"SELECT id, core_construct_id, sector_x, sector_y, sector_z, script_name, cooldown_seconds_override, created_at FROM public.{TableName}"
+            $"SELECT id, core_construct_id, sector_x, sector_y, sector_z, script_name, cooldown_seconds_override, created_at, lockdown_reinforcements_spawned FROM public.{TableName}"
         )).ToList();
         return rows.Select(r => new AlienWarEventRecord
         {
@@ -61,7 +62,8 @@ public class AlienWarEventRepository(IServiceProvider provider) : IAlienWarEvent
             Sector = new Vec3 { x = r.sector_x, y = r.sector_y, z = r.sector_z },
             ScriptName = r.script_name ?? string.Empty,
             CooldownSecondsOverride = r.cooldown_seconds_override,
-            CreatedAt = r.created_at
+            CreatedAt = r.created_at,
+            LockdownReinforcementsSpawned = r.lockdown_reinforcements_spawned
         }).ToList();
     }
 
@@ -75,5 +77,15 @@ public class AlienWarEventRepository(IServiceProvider provider) : IAlienWarEvent
         public string script_name { get; set; }
         public int? cooldown_seconds_override { get; set; }
         public DateTime created_at { get; set; }
+        public bool lockdown_reinforcements_spawned { get; set; }
+    }
+
+    public async Task SetLockdownReinforcementsSpawnedAsync(ulong coreConstructId, bool value)
+    {
+        using var db = _factory.Create();
+        db.Open();
+        await db.ExecuteAsync(
+            $"UPDATE public.{TableName} SET lockdown_reinforcements_spawned = @v WHERE core_construct_id = @core_construct_id",
+            new { v = value, core_construct_id = (long)coreConstructId });
     }
 }

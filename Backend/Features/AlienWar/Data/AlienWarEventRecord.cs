@@ -11,4 +11,5 @@ public class AlienWarEventRecord
     public string ScriptName { get; set; } = string.Empty;
     public int? CooldownSecondsOverride { get; set; }
     public DateTime CreatedAt { get; set; }
+    public bool LockdownReinforcementsSpawned { get; set; }
 }
