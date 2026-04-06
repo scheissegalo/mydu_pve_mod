@@ -17,6 +17,12 @@ public interface IConstructSpatialHashRepository
     Task<IEnumerable<ulong>> FindPlayerLiveConstructsNearPosition(Vec3 position, double distance);
 
     /// <summary>
+    /// Same filters as <see cref="FindPlayerLiveConstructsNearPosition"/> but returns all matches in range (no row cap).
+    /// For observability; encounter activation uses the capped query.
+    /// </summary>
+    Task<IEnumerable<ulong>> FindAllPlayerLiveConstructsNearPosition(Vec3 position, double distance);
+
+    /// <summary>
     /// Resolves distinct personal player owners for the given construct ids.
     /// Organization-owned constructs (no player_id) are excluded from the result; callers may log via <see cref="GetOrganizationOnlyConstructCountAmong"/>.
     /// </summary>

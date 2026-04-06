@@ -27,6 +27,9 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
 {
     public const double SectorGridSnap = DistanceHelpers.OneSuInMeters * 20;
 
+    /// <summary>Radius (meters) used to detect player constructs near a sector instance for activation and zone-occupant queries.</summary>
+    public const double EncounterZonePlayerProximityMeters = DistanceHelpers.OneSuInMeters * 10;
+
     private readonly IRandomProvider _randomProvider = serviceProvider.GetRequiredService<IRandomProvider>();
 
     private readonly ISectorInstanceRepository _sectorInstanceRepository =
@@ -320,10 +323,10 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
         try
         {
             _logger.LogDebug("Scanning for inactive sectors visited by players (distance: {Distance}m)", 
-                DistanceHelpers.OneSuInMeters * 10);
+                EncounterZonePlayerProximityMeters);
             
             var sectorsToActivate = (await _sectorInstanceRepository
-                    .ScanForInactiveSectorsVisitedByPlayersV2(DistanceHelpers.OneSuInMeters * 10))
+                    .ScanForInactiveSectorsVisitedByPlayersV2(EncounterZonePlayerProximityMeters))
                 .DistinctBy(x => x.Sector)
                 .ToList();
             
@@ -364,10 +367,9 @@ public class SectorPoolManager(IServiceProvider serviceProvider) : ISectorPoolMa
 
         // Use spatial query instead of grid-snap lookup to handle adaptive grid snap
         // The spatial query found the sector, so use the same approach to find constructs
-        var searchDistance = DistanceHelpers.OneSuInMeters * 10; // Same distance as detection
         var constructs = (await spatialHashRepository.FindPlayerLiveConstructsNearPosition(
             sectorInstance.Sector, 
-            searchDistance
+            EncounterZonePlayerProximityMeters
         )).ToList();
 
         _logger.LogDebug("ActivateSector: Found {Count} player constructs near sector position ({X}, {Y}, {Z}) using spatial query", 
