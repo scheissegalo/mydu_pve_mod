@@ -8,15 +8,19 @@ using Backend.Scenegraph;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Mod.DynamicEncounters.Features.Common.Interfaces;
+using Mod.DynamicEncounters.Features.Loot.Data;
 using Mod.DynamicEncounters.Features.Loot.Interfaces;
+using Mod.DynamicEncounters.Features.Loot.Service;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Interfaces;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Skills.Data;
 using Mod.DynamicEncounters.Features.Spawner.Behaviors.Skills.Interfaces;
+using Mod.DynamicEncounters.Features.Webhook.Interfaces;
 using Mod.DynamicEncounters.Helpers;
 using Mod.DynamicEncounters.Threads.Handles;
 using NQ;
 using NQ.Interfaces;
 using NQutils.Def;
+using NQutils.Exceptions;
 using Swashbuckle.AspNetCore.Annotations;
 using ElementPropertyUpdate = NQ.ElementPropertyUpdate;
 
@@ -32,12 +36,107 @@ public class ConstructController : Controller
     {
         var provider = ModBase.ServiceProvider;
         var elementReplacerService = provider.GetRequiredService<IElementReplacerService>();
+        var discord = provider.GetRequiredService<IDiscordWebhookService>();
 
-        await elementReplacerService.ReplaceSingleElementAsync((ulong)constructId, elementTypeName,
-            replaceElementTypeName);
-
-        return Ok();
+        try
+        {
+            await elementReplacerService.ReplaceSingleElementAsync(
+                (ulong)constructId,
+                elementTypeName,
+                replaceElementTypeName
+            );
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            return HandleReplaceError(ex, discord, (ulong)constructId, elementTypeName, replaceElementTypeName);
+        }
     }
+
+    [HttpPost]
+    [Route("{constructId:long}/replace/batch")]
+    [SwaggerOperation("Replace multiple elements on a construct in one request")]
+    public async Task<IActionResult> ReplaceElementsBatch(long constructId, [FromBody] ReplaceBatchRequest request)
+    {
+        if (request?.Swaps == null || request.Swaps.Count == 0)
+        {
+            return BadRequest(new { message = "Request must include a non-empty swaps array" });
+        }
+
+        var provider = ModBase.ServiceProvider;
+        var elementReplacerService = provider.GetRequiredService<IElementReplacerService>();
+        var discord = provider.GetRequiredService<IDiscordWebhookService>();
+
+        try
+        {
+            var result = await elementReplacerService.ReplaceBatchAsync((ulong)constructId, request.Swaps);
+
+            if (result.Succeeded == 0 && result.Failed > 0)
+            {
+                var firstError = result.Errors.FirstOrDefault()?.Message ?? "All swaps failed";
+                if (IsSessionRelatedMessage(firstError))
+                {
+                    return StatusCode(503, result);
+                }
+
+                return BadRequest(result);
+            }
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            discord.NotifyError(
+                "Element batch swap failed",
+                ex.Message,
+                (ulong)constructId,
+                ex
+            );
+
+            if (ex is BusinessException bex && bex.error.code == ErrorCode.InvalidSession)
+            {
+                return StatusCode(503, new { message = ex.Message });
+            }
+
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    private IActionResult HandleReplaceError(
+        Exception ex,
+        IDiscordWebhookService discord,
+        ulong constructId,
+        string from,
+        string to)
+    {
+        discord.NotifyError(
+            "Element swap failed",
+            $"{from} → {to}: {ex.Message}",
+            constructId,
+            ex
+        );
+
+        if (IsSessionRelatedMessage(ex.Message))
+        {
+            return StatusCode(503, new { message = ex.Message });
+        }
+
+        if (ex is ElementReplacementException)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
+        if (ex is BusinessException bex && bex.error.code == ErrorCode.InvalidSession)
+        {
+            return StatusCode(503, new { message = ex.Message });
+        }
+
+        return StatusCode(500, new { message = ex.Message });
+    }
+
+    private static bool IsSessionRelatedMessage(string message) =>
+        message.Contains("InvalidSession", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("bad session", StringComparison.OrdinalIgnoreCase);
 
     [HttpPost]
     [Route("{constructId:long}/target/{targetConstructId:long}")]

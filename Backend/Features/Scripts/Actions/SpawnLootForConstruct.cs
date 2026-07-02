@@ -1,17 +1,14 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Mod.DynamicEncounters.Common.Data;
-using Mod.DynamicEncounters.Common.Helpers;
 using Mod.DynamicEncounters.Features.Loot.Data;
 using Mod.DynamicEncounters.Features.Loot.Interfaces;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Data;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Interfaces;
 using Mod.DynamicEncounters.Features.Scripts.Actions.Services;
 using Mod.DynamicEncounters.Helpers;
-using NQ;
-using NQutils.Exceptions;
 
 namespace Mod.DynamicEncounters.Features.Scripts.Actions;
 
@@ -50,27 +47,26 @@ public class SpawnLootForConstruct(ScriptActionItem actionItem) : IScriptAction
         
         logger.LogInformation("Spawned Loot for Construct {Construct}", context.ConstructId);
 
-        var retryOptions = RetryOptions.Default(logger);
-        retryOptions.ShouldRetryOnException =
-            ex => ex is BusinessException bex && bex.error.code == ErrorCode.InvalidSession;
-
         var elementReplacer = provider.GetRequiredService<IElementReplacerService>();
-        foreach (var replace in itemBagData.ElementsToReplace)
+        if (itemBagData.ElementsToReplace.Count > 0)
         {
-            for (var i = 0; i < replace.Quantity; i++)
+            var swaps = new List<ElementSwapRequest>();
+            foreach (var replace in itemBagData.ElementsToReplace)
             {
-                try
+                for (var i = 0; i < replace.Quantity; i++)
                 {
-                    await elementReplacer.ReplaceSingleElementAsync(
-                        context.ConstructId.Value,
-                        replace.ElementName,
-                        replace.ReplaceElementName
-                    ).WithRetry(retryOptions);
+                    swaps.Add(new ElementSwapRequest(replace.ElementName, replace.ReplaceElementName));
                 }
-                catch (Exception e)
-                {
-                    logger.LogError(e, "Failed to replace element {El} to {El2}", replace.ElementName, replace.ReplaceElementName);
-                }
+            }
+
+            var batchResult = await elementReplacer.ReplaceBatchAsync(context.ConstructId.Value, swaps);
+            if (batchResult.Failed > 0)
+            {
+                logger.LogWarning(
+                    "Element replacement batch completed with {Failed} failures on construct {Construct}",
+                    batchResult.Failed,
+                    context.ConstructId
+                );
             }
         }
         

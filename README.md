@@ -61,6 +61,8 @@ The guide here only takes you so far into running this on a basic setup.
       BOT_PREFIX: ${PVE_BOT_PREFIX}
       CORS_ALLOW_ALL: 'true'
       API_ENABLED: 'true'
+      # Optional: Discord webhook for element-swap and API error alerts (do not commit the URL token)
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
     volumes:
       - ${DATAPATH}:/data
       - ${LOGPATH}:/logs
@@ -104,6 +106,49 @@ docker-compose up -d mod_dynamic_encounters
 # Running Locally
 
 see [Running Locally](Documentation/RunningLocally.md)
+
+# Element swap API (Ship Services)
+
+Used by ModGameAPI Ship Services to upgrade/downgrade placed elements on a player construct.
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /construct/{constructId}/replace/{from}/with/{to}` | Replace **one** matching element (backward compatible) |
+| `POST /construct/{constructId}/replace/batch` | Replace **multiple** elements in one request |
+
+**Batch request body:**
+
+```json
+{
+  "swaps": [
+    { "fromElementType": "AdjusterLarge", "toElementType": "AdjusterLarge3" },
+    { "fromElementType": "AdjusterLarge", "toElementType": "AdjusterLarge3" }
+  ]
+}
+```
+
+Each array entry replaces one element instance. Repeat the same pair for “swap all” of that type.
+
+**Batch response:**
+
+```json
+{
+  "succeeded": 2,
+  "failed": 0,
+  "errors": [],
+  "warnings": []
+}
+```
+
+`warnings` may include link-migration issues when the element was swapped but links could not be restored.
+
+**Environment:**
+
+| Variable | Description |
+|----------|-------------|
+| `DISCORD_WEBHOOK_URL` | Optional Discord incoming webhook URL for swap/API error notifications |
+
+The mod bot gRPC session is probed and auto-reconnected before swaps. Element links are preserved when the replacement type uses compatible plugs.
 
 # Setting up Encounters
 

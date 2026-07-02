@@ -17,6 +17,7 @@ mod_dynamic_encounters:
     BOT_PREFIX: ${PVE_BOT_PREFIX} # your bot ingame name
     API_ENABLED: "true" # Enable APIs
     CORS_ALLOW_ALL: "true" # Enables CORS. Consider security by allowing requests to come from any origin with this enabled. Adjust the domains of the container for optimal settings and disable cors.
+    DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-} # Optional: Discord alerts for element-swap errors
   volumes:
     - ${DATAPATH}:/data
     - ${LOGPATH}:/logs

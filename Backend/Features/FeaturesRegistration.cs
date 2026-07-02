@@ -26,6 +26,7 @@ using Mod.DynamicEncounters.Features.Spawner;
 using Mod.DynamicEncounters.Features.TaskQueue;
 using Mod.DynamicEncounters.Features.VoxelService;
 using Mod.DynamicEncounters.Features.Warp;
+using Mod.DynamicEncounters.Features.Webhook;
 
 namespace Mod.DynamicEncounters.Features;
 
@@ -71,6 +72,7 @@ public static class FeaturesRegistration
         services.AddSingleton<IGeneralChatService, GeneralChatService>();
         services.AddSingleton<IWreckChatNotificationService, WreckChatNotificationService>();
 
+        services.RegisterWebhookServices();
         services.RegisterSectorGeneration();
         services.RegisterSpawnerScripts();
         services.RegisterTaskQueue();
